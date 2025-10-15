@@ -3,12 +3,8 @@
  * Handles all HTTP requests to the backend API with event context support
  */
 
-// Dynamically determine API URL based on current host
+// Get API URL from environment variable
 const getApiBaseUrl = () => {
-  if (typeof window !== "undefined") {
-    const currentHost = window.location.hostname;
-    return `http://${currentHost}:3001`;
-  }
   return process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 };
 
