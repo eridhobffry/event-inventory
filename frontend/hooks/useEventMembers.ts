@@ -4,18 +4,19 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import { useAuthToken } from "./useAuthenticatedApi";
+import type { Role } from "./useInvitations";
 
 export interface EventMember {
   id: string;
   userId: string;
   eventId: string;
-  role: string;
+  role: Role;
   createdAt: string;
 }
 
 export interface AddMemberData {
   userId: string;
-  role?: "owner" | "member";
+  role?: Role;
 }
 
 // Fetch event members

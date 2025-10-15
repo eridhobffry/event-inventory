@@ -139,6 +139,18 @@ class SimpleApiClient {
   ) {
     return this.request(url, { method: "DELETE", headers: options.headers });
   }
+
+  async patch(
+    url: string,
+    data?: unknown,
+    options: { headers?: Record<string, string> } = {}
+  ) {
+    return this.request(url, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+      headers: options.headers,
+    });
+  }
 }
 
 export const apiClient = new SimpleApiClient(API_BASE_URL + "/api/v1");
