@@ -5,7 +5,7 @@ import {
   verifyNeonAuth,
   AuthenticatedRequest,
 } from "../../middleware/neonAuth";
-import { Category, Role } from "@prisma/client";
+import { Category, Role, UnitOfMeasure, ItemStatus, StorageType } from "@prisma/client";
 import {
   EventAccessRequest,
   verifyEventAccess,
@@ -13,24 +13,77 @@ import {
 import { verifyCanEditItems, hasPermission } from "../../middleware/permissions";
 
 // Validation schemas
-const createItemSchema = z.object({
+const baseItemSchema = z.object({
   name: z.string().min(1).max(255),
+  sku: z.string().min(1).max(255),
   category: z.nativeEnum(Category),
   quantity: z.number().int().min(0),
+  unitOfMeasure: z.nativeEnum(UnitOfMeasure).default("EACH"),
+  unitPrice: z.number().positive().optional(),
+  status: z.nativeEnum(ItemStatus).default("AVAILABLE"),
   location: z.string().min(1).max(255),
+  bin: z.string().max(255).optional(),
   description: z.string().optional(),
   eventId: z.string().uuid(),
+  
+  // === PHASE 2: Food & Beverage Fields ===
+  // Perishable Management
+  isPerishable: z.boolean().default(false),
+  storageType: z.nativeEnum(StorageType).optional(),
+  
+  // Procurement
+  parLevel: z.number().int().positive().optional(),
+  reorderPoint: z.number().int().positive().optional(),
+  supplierId: z.string().uuid().optional(),
+  
+  // Compliance
+  isAlcohol: z.boolean().default(false),
+  abv: z.number().min(0).max(100).optional(), // Alcohol by volume percentage
+  allergens: z.array(z.string()).default([]),
 });
 
-const updateItemSchema = createItemSchema.partial().omit({ eventId: true });
+const createItemSchema = baseItemSchema.refine(
+  (data) => {
+    // If isAlcohol is true, abv should be provided
+    if (data.isAlcohol && data.abv === undefined) {
+      return false;
+    }
+    return true;
+  },
+  {
+    message: "ABV is required when isAlcohol is true",
+    path: ["abv"],
+  }
+).refine(
+  (data) => {
+    // If reorderPoint is set, it should be less than parLevel
+    if (data.reorderPoint !== undefined && data.parLevel !== undefined) {
+      return data.reorderPoint < data.parLevel;
+    }
+    return true;
+  },
+  {
+    message: "Reorder point must be less than par level",
+    path: ["reorderPoint"],
+  }
+);
+
+const updateItemSchema = baseItemSchema.partial().omit({ eventId: true });
 
 const querySchema = z.object({
   page: z.string().optional().default("1"),
   limit: z.string().optional().default("20"),
   category: z.nativeEnum(Category).optional(),
+  status: z.nativeEnum(ItemStatus).optional(),
   location: z.string().optional(),
-  q: z.string().optional(), // search query
+  q: z.string().optional(), // search query (name or SKU)
   eventId: z.string().uuid().optional(),
+  
+  // === PHASE 2: F&B Filters ===
+  perishable: z.string().optional(), // "true" or "false"
+  expiringSoon: z.string().optional(), // number of days threshold
+  supplierId: z.string().uuid().optional(),
+  alcohol: z.string().optional(), // "true" or "false"
 });
 
 const itemsRoutes: FastifyPluginAsync = async (server) => {
@@ -49,12 +102,18 @@ const itemsRoutes: FastifyPluginAsync = async (server) => {
             limit: { type: "string", default: "20" },
             category: { type: "string", enum: Object.values(Category) },
             location: { type: "string" },
-            q: { type: "string", description: "Search query for name" },
+            q: { type: "string", description: "Search query for name or SKU" },
             eventId: {
               type: "string",
               format: "uuid",
               description: "Filter by event ID",
             },
+            // Phase 2: F&B filters
+            status: { type: "string", enum: Object.values(ItemStatus) },
+            perishable: { type: "string", description: "true|false" },
+            expiringSoon: { type: "string", description: "Days threshold for expiration (integer)" },
+            supplierId: { type: "string", format: "uuid" },
+            alcohol: { type: "string", description: "true|false" },
           },
         },
         response: {
@@ -65,18 +124,7 @@ const itemsRoutes: FastifyPluginAsync = async (server) => {
                 type: "array",
                 items: {
                   type: "object",
-                  properties: {
-                    id: { type: "string" },
-                    name: { type: "string" },
-                    category: { type: "string" },
-                    quantity: { type: "number" },
-                    location: { type: "string" },
-                    description: { type: "string" },
-                    eventId: { type: "string" },
-                    lastAudit: { type: "string" },
-                    createdAt: { type: "string" },
-                    updatedAt: { type: "string" },
-                  },
+                  additionalProperties: true, // Allow all fields from Prisma
                 },
               },
               pagination: {
@@ -113,9 +161,37 @@ const itemsRoutes: FastifyPluginAsync = async (server) => {
       // Build where clause
       const where: any = { eventId };
       if (query.category) where.category = query.category;
+      if (query.status) where.status = query.status;
       if (query.location)
         where.location = { contains: query.location, mode: "insensitive" };
-      if (query.q) where.name = { contains: query.q, mode: "insensitive" };
+      if (query.supplierId) where.supplierId = query.supplierId;
+      if (typeof query.perishable === "string") {
+        if (query.perishable === "true") where.isPerishable = true;
+        if (query.perishable === "false") where.isPerishable = false;
+      }
+      if (typeof query.alcohol === "string") {
+        if (query.alcohol === "true") where.isAlcohol = true;
+        if (query.alcohol === "false") where.isAlcohol = false;
+      }
+      if (query.q) {
+        // Search in both name and SKU
+        where.OR = [
+          { name: { contains: query.q, mode: "insensitive" } },
+          { sku: { contains: query.q, mode: "insensitive" } },
+        ];
+      }
+      if (query.expiringSoon) {
+        const days = parseInt(query.expiringSoon);
+        if (!isNaN(days) && days > 0) {
+          const threshold = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+          where.batches = {
+            some: {
+              isOpen: true,
+              expirationDate: { lte: threshold },
+            },
+          };
+        }
+      }
 
       // Get total count
       const total = await prisma.item.count({ where });
@@ -126,6 +202,36 @@ const itemsRoutes: FastifyPluginAsync = async (server) => {
         skip: (page - 1) * limit,
         take: limit,
         orderBy: { createdAt: "desc" },
+        include: {
+          supplier: {
+            select: {
+              id: true,
+              name: true,
+              contactName: true,
+              contactEmail: true,
+            },
+          },
+          batches: {
+            where: {
+              isOpen: true,
+            },
+            orderBy: [
+              { expirationDate: "asc" },
+              { receivedAt: "asc" },
+            ],
+            select: {
+              id: true,
+              lotNumber: true,
+              quantity: true,
+              initialQuantity: true,
+              expirationDate: true,
+              receivedAt: true,
+              manufacturedAt: true,
+              isOpen: true,
+            },
+            take: 10,
+          },
+        },
       });
 
       return {
@@ -157,24 +263,7 @@ const itemsRoutes: FastifyPluginAsync = async (server) => {
         response: {
           200: {
             type: "object",
-            properties: {
-              id: { type: "string" },
-              name: { type: "string" },
-              category: { type: "string" },
-              quantity: { type: "number" },
-              location: { type: "string" },
-              description: { type: "string" },
-              eventId: { type: "string" },
-              lastAudit: { type: "string" },
-              createdAt: { type: "string" },
-              updatedAt: { type: "string" },
-              auditLogs: {
-                type: "array",
-                items: {
-                  type: "object",
-                },
-              },
-            },
+            additionalProperties: true, // Allow all fields from Prisma
           },
           404: {
             type: "object",
@@ -192,6 +281,24 @@ const itemsRoutes: FastifyPluginAsync = async (server) => {
       const item = await prisma.item.findUnique({
         where: { id },
         include: {
+          supplier: {
+            select: {
+              id: true,
+              name: true,
+              contactName: true,
+              contactEmail: true,
+              contactPhone: true,
+            },
+          },
+          batches: {
+            where: {
+              isOpen: true,
+            },
+            orderBy: [
+              { expirationDate: "asc" },
+              { receivedAt: "asc" },
+            ],
+          },
           auditLogs: {
             orderBy: { timestamp: "desc" },
             take: 10,

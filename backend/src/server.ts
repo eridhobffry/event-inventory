@@ -79,9 +79,12 @@ server.register(swagger, {
       { name: "event-members", description: "Event member management" },
       { name: "invitations", description: "Event invitation management" },
       { name: "items", description: "Inventory item operations" },
+      { name: "batches", description: "Inventory batch management" },
       { name: "audits", description: "Audit log operations" },
       { name: "api-keys", description: "API key management" },
       { name: "mcp", description: "Model Context Protocol endpoints" },
+      { name: "suppliers", description: "Supplier management operations" },
+      { name: "waste", description: "Waste logging operations for F&B" },
     ],
   },
 });
@@ -128,17 +131,23 @@ import eventsRoutes from "./routes/v1/events.routes";
 import eventMembersRoutes from "./routes/v1/eventMembers.routes";
 import invitationsRoutes from "./routes/v1/invitations.routes";
 import itemsRoutes from "./routes/v1/items.routes";
+import batchesRoutes from "./routes/v1/batches.routes";
 import auditRoutes from "./routes/v1/audit.routes";
 import apiKeysRoutes from "./routes/v1/apiKeys.routes";
 import mcpRoutes from "./routes/v1/mcp.routes";
+import suppliersRoutes from "./routes/v1/suppliers.routes";
+import wasteRoutes from "./routes/v1/waste.routes";
 
 server.register(eventsRoutes, { prefix: "/api/v1" });
 server.register(eventMembersRoutes, { prefix: "/api/v1" });
 server.register(invitationsRoutes, { prefix: "/api/v1" });
 server.register(itemsRoutes, { prefix: "/api/v1" });
+server.register(batchesRoutes, { prefix: "/api/v1" });
 server.register(auditRoutes, { prefix: "/api/v1" });
 server.register(apiKeysRoutes, { prefix: "/api/v1" });
 server.register(mcpRoutes, { prefix: "/api/v1/mcp" });
+server.register(suppliersRoutes, { prefix: "/api/v1" });
+server.register(wasteRoutes, { prefix: "/api/v1" });
 
 // Start server
 const start = async () => {
