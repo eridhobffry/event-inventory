@@ -3,6 +3,7 @@
 import { useUser } from "@stackframe/stack";
 import { useEvents } from "@/hooks/useEvents";
 import { Navbar } from "@/components/Navbar";
+import { RoleBadge } from "@/components/RoleBadge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -11,10 +12,10 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Plus, Calendar, MapPin, Users } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import type { Role } from "@/hooks/useInvitations";
 
 export default function EventsPage() {
   const user = useUser({ or: "redirect" });
@@ -72,13 +73,10 @@ export default function EventsPage() {
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
                         <CardTitle className="mb-2">{event.name}</CardTitle>
-                        <Badge
-                          variant={
-                            event.role === "owner" ? "default" : "secondary"
-                          }
-                        >
-                          {event.role === "owner" ? "Owner" : "Member"}
-                        </Badge>
+                        <RoleBadge 
+                          role={event.role.toUpperCase() as Role} 
+                          showTooltip={false}
+                        />
                       </div>
                     </div>
                     {event.description && (
