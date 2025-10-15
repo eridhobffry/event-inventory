@@ -25,9 +25,10 @@ model Event {
     updatedAt   DateTime  @updatedAt
 
     // Relations
-    items     Item[]
-    members   EventMember[]
-    auditLogs AuditLog[]
+    items       Item[]
+    members     EventMember[]
+    invitations EventInvitation[]
+    auditLogs   AuditLog[]
 
     @@index([createdById])
     @@map("events")
@@ -38,7 +39,7 @@ model EventMember {
     id        String   @id @default(uuid())
     userId    String // User ID from Stack Auth
     eventId   String
-    role      String   @default("member") // "owner", "member" - for future use
+    role      Role     @default(VIEWER) // Role-based permissions
     createdAt DateTime @default(now())
 
     // Relations
@@ -48,6 +49,43 @@ model EventMember {
     @@index([userId])
     @@index([eventId])
     @@map("event_members")
+}
+
+// Event Invitations - for inviting members by email
+model EventInvitation {
+    id            String           @id @default(uuid())
+    eventId       String
+    inviterUserId String // User ID who sent the invitation
+    inviteeEmail  String // Email of person being invited
+    role          Role             @default(VIEWER)
+    status        InvitationStatus @default(PENDING)
+    token         String           @unique @default(uuid()) // Unique token for accepting
+    message       String? // Optional personal message
+    createdAt     DateTime         @default(now())
+    expiresAt     DateTime // Invitation expiry (7 days from creation)
+
+    // Relations
+    event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+    @@unique([eventId, inviteeEmail, status]) // Prevent duplicate pending invitations
+    @@index([inviteeEmail, status])
+    @@index([eventId])
+    @@index([token])
+    @@map("event_invitations")
+}
+
+enum Role {
+    OWNER  // Full control over event
+    ADMIN  // Manage items, audits, invite EDITOR/VIEWER
+    EDITOR // Create/edit items and audits
+    VIEWER // Read-only access
+}
+
+enum InvitationStatus {
+    PENDING
+    ACCEPTED
+    DECLINED
+    EXPIRED
 }
 
 // Inventory Items
