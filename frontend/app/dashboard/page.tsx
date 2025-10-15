@@ -113,6 +113,10 @@ export default function DashboardPage() {
 
           {/* Event Details */}
           <div className="flex flex-col sm:flex-row gap-2 text-sm text-muted-foreground">
+            {/* Pending Invitations */}
+            <div className="mb-8">
+              <PendingInvitationsCard />
+            </div>
             {currentEvent.location && (
               <div className="flex items-center">
                 <MapPin className="h-4 w-4 mr-1 flex-shrink-0" />
@@ -130,11 +134,6 @@ export default function DashboardPage() {
               </div>
             )}
           </div>
-        </div>
-
-        {/* Pending Invitations */}
-        <div className="mb-8">
-          <PendingInvitationsCard />
         </div>
 
         {/* Stats Cards */}
