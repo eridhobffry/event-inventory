@@ -17,7 +17,6 @@ import {
   LayoutDashboard,
   ClipboardList,
   Settings,
-  BookOpen,
   Plus,
   Calendar,
 } from "lucide-react";
@@ -110,12 +109,6 @@ export function Navbar() {
                 <Button variant="ghost" size="sm">
                   <ClipboardList className="h-4 w-4 mr-2" />
                   Audits
-                </Button>
-              </Link>
-              <Link href="/api-docs">
-                <Button variant="ghost" size="sm">
-                  <BookOpen className="h-4 w-4 mr-2" />
-                  API Docs
                 </Button>
               </Link>
             </div>

@@ -1,9 +1,8 @@
 "use client";
 
 import { useUser } from "@stackframe/stack";
-import { SignIn } from "@stackframe/stack";
 import { Button } from "@/components/ui/button";
-import { PackageIcon, Zap, Shield, Layers } from "lucide-react";
+import { PackageIcon, Zap, Shield } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -45,11 +44,6 @@ export default function Home() {
           <div className="flex gap-4 justify-center">
             <Link href="/handler/sign-up">
               <Button size="lg">Get Started Free</Button>
-            </Link>
-            <Link href="/api-docs">
-              <Button size="lg" variant="outline">
-                View API Docs
-              </Button>
             </Link>
           </div>
         </div>
