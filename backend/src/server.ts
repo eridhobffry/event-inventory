@@ -138,7 +138,7 @@ server.register(invitationsRoutes, { prefix: "/api/v1" });
 server.register(itemsRoutes, { prefix: "/api/v1" });
 server.register(auditRoutes, { prefix: "/api/v1" });
 server.register(apiKeysRoutes, { prefix: "/api/v1" });
-server.register(mcpRoutes, { prefix: "/mcp" });
+server.register(mcpRoutes, { prefix: "/api/v1/mcp" });
 
 // Start server
 const start = async () => {
