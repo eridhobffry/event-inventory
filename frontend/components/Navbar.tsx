@@ -19,6 +19,7 @@ import {
   Settings,
   BookOpen,
   Plus,
+  Calendar,
 } from "lucide-react";
 import { useEventContext } from "@/contexts/EventContext";
 import { useEvents } from "@/hooks/useEvents";
@@ -91,6 +92,12 @@ export function Navbar() {
                 <Button variant="ghost" size="sm">
                   <LayoutDashboard className="h-4 w-4 mr-2" />
                   Dashboard
+                </Button>
+              </Link>
+              <Link href="/events">
+                <Button variant="ghost" size="sm">
+                  <Calendar className="h-4 w-4 mr-2" />
+                  Events
                 </Button>
               </Link>
               <Link href="/items">
