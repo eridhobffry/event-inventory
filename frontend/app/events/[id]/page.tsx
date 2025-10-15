@@ -22,7 +22,7 @@ import {
 import { EventForm } from "@/components/EventForm";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, Calendar, MapPin, Users, Trash2 } from "lucide-react";
+import { ArrowLeft, Calendar, MapPin, Users, Trash2, Edit } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -140,11 +140,12 @@ export default function EventDetailsPage() {
                       <CardTitle>Event Details</CardTitle>
                       {isOwner && !isEditing && (
                         <Button
-                          variant="outline"
+                          variant="default"
                           size="sm"
                           onClick={() => setIsEditing(true)}
                         >
-                          Edit
+                          <Edit className="h-4 w-4 mr-2" />
+                          Edit Event
                         </Button>
                       )}
                     </div>
@@ -220,34 +221,46 @@ export default function EventDetailsPage() {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-2">
-                      {members.map((member) => (
-                        <div
-                          key={member.id}
-                          className="flex items-center justify-between p-3 border rounded-lg"
-                        >
-                          <div className="flex items-center gap-3">
-                            <Users className="h-4 w-4 text-muted-foreground" />
-                            <div>
-                              <p className="text-sm font-medium">
-                                {member.userId}
-                              </p>
-                              <p className="text-xs text-muted-foreground">
-                                Joined{" "}
-                                {new Date(
-                                  member.createdAt
-                                ).toLocaleDateString()}
-                              </p>
-                            </div>
-                          </div>
-                          <Badge
-                            variant={
-                              member.role === "owner" ? "default" : "secondary"
-                            }
+                      {members.map((member) => {
+                        const isCurrentUser = member.userId === user?.id;
+                        const displayName = isCurrentUser
+                          ? `You (${user.displayName || user.primaryEmail})`
+                          : `User ${member.userId.slice(0, 8)}...`;
+
+                        return (
+                          <div
+                            key={member.id}
+                            className="flex items-center justify-between p-3 border rounded-lg"
                           >
-                            {member.role}
-                          </Badge>
-                        </div>
-                      ))}
+                            <div className="flex items-center gap-3">
+                              <Users className="h-4 w-4 text-muted-foreground" />
+                              <div>
+                                <p
+                                  className="text-sm font-medium"
+                                  title={member.userId}
+                                >
+                                  {displayName}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  Joined{" "}
+                                  {new Date(
+                                    member.createdAt
+                                  ).toLocaleDateString()}
+                                </p>
+                              </div>
+                            </div>
+                            <Badge
+                              variant={
+                                member.role === "owner"
+                                  ? "default"
+                                  : "secondary"
+                              }
+                            >
+                              {member.role}
+                            </Badge>
+                          </div>
+                        );
+                      })}
                     </div>
                   </CardContent>
                 </Card>
