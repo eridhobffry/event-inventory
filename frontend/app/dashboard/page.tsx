@@ -22,6 +22,7 @@ import {
   Plus,
   Calendar,
   MapPin,
+  Edit2,
 } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -72,7 +73,16 @@ export default function DashboardPage() {
       <main className="container mx-auto px-4 py-8">
         <div className="flex justify-between items-start mb-8">
           <div>
-            <h1 className="text-3xl font-bold">{currentEvent.name}</h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-3xl font-bold">{currentEvent.name}</h1>
+              {currentEvent.role === "owner" && (
+                <Link href={`/events/${currentEvent.id}`}>
+                  <Button variant="ghost" size="sm">
+                    <Edit2 className="h-4 w-4" />
+                  </Button>
+                </Link>
+              )}
+            </div>
             <div className="flex items-center gap-4 mt-2">
               <p className="text-muted-foreground">
                 Welcome back, {user.displayName || "there"}!
