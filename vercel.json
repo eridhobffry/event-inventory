@@ -6,7 +6,7 @@
   "installCommand": "npm install --workspaces && cd frontend && npm install",
   "framework": "nextjs",
   "env": {
-    "NEXT_PUBLIC_API_URL": "https://your-backend-url.railway.app",
+    "NEXT_PUBLIC_API_URL": "https://eventforge-api.onrender.com",
     "NEXT_PUBLIC_STACK_PROJECT_ID": "your-stack-project-id",
     "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY": "your-stack-publishable-client-key",
     "STACK_SECRET_SERVER_KEY": "your-stack-secret-server-key"
@@ -65,7 +65,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://your-backend-url.railway.app/:path*"
+      "destination": "https://eventforge-api.onrender.com/:path*"
     }
   ]
 }

@@ -5,8 +5,9 @@ services:
     region: oregon
     plan: starter
     branch: main
-    buildCommand: cd backend && npm install --include=dev && npx prisma generate --schema=../prisma/schema.prisma && npm run build
-    startCommand: cd backend && npm start
+    buildCommand: npm install --include=dev && npx prisma generate --schema=../prisma/schema.prisma && npm run build
+    startCommand: npm start
+    rootDir: backend
     healthCheckPath: /api/v1/health
     envVars:
       - key: NODE_ENV
