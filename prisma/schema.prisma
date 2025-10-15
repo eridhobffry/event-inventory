@@ -90,26 +90,55 @@ enum InvitationStatus {
 
 // Inventory Items
 model Item {
-    id          String                       @id @default(uuid())
-    name        String
-    category    Category
-    quantity    Int                          @default(0)
-    location    String
-    description String?
-    lastAudit   DateTime?
-    vectorDesc  Unsupported("vector(1536)")? // For future AI semantic search
-    eventId     String // FK to Event
-    createdAt   DateTime                     @default(now())
-    updatedAt   DateTime                     @updatedAt
+    id             String                       @id @default(uuid())
+    name           String
+    sku            String                       @unique // Stock Keeping Unit - unique identifier
+    category       Category
+    quantity       Int                          @default(0)
+    unitOfMeasure  UnitOfMeasure                @default(EACH)
+    unitPrice      Decimal?                     @db.Decimal(10, 2) // Price per unit (optional)
+    status         ItemStatus                   @default(AVAILABLE)
+    location       String // Warehouse/site location
+    bin            String? // Specific shelf/bin within location
+    description    String?
+    lastAudit      DateTime?
+    vectorDesc     Unsupported("vector(1536)")? // For future AI semantic search
+    eventId        String // FK to Event
+    
+    // === PHASE 2: Food & Beverage Fields ===
+    // Perishable Management
+    isPerishable   Boolean                      @default(false)
+    storageType    StorageType? // DRY, CHILL, FREEZE
+    
+    // Procurement
+    parLevel       Int? // Target stock level
+    reorderPoint   Int? // Trigger reorder when below this
+    supplierId     String? // FK to Supplier
+    
+    // Compliance
+    isAlcohol      Boolean                      @default(false)
+    abv            Decimal?                     @db.Decimal(5, 2) // Alcohol by volume (0-100%)
+    allergens      String[] // Array of allergen codes (e.g., ["DAIRY", "NUTS"])
+    
+    createdAt      DateTime                     @default(now())
+    updatedAt      DateTime                     @updatedAt
 
     // Relations
-    event     Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+    event     Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+    supplier  Supplier?    @relation(fields: [supplierId], references: [id], onDelete: SetNull)
     auditLogs AuditLog[]
+    batches   ItemBatch[]
+    wasteLogs WasteLog[]
 
     @@index([category])
     @@index([name])
+    @@index([sku])
+    @@index([status])
     @@index([location])
     @@index([eventId])
+    @@index([isPerishable])
+    @@index([supplierId])
+    @@index([isAlcohol])
     @@map("items")
 }
 
@@ -118,7 +147,33 @@ enum Category {
     AV_EQUIPMENT
     DECOR
     SUPPLIES
+    FOOD_BEVERAGE // Phase 2: F&B category
     OTHER
+}
+
+enum UnitOfMeasure {
+    EACH      // Individual items
+    PAIR      // Pairs (e.g., speakers)
+    SET       // Sets/kits
+    METER     // Length
+    BOX       // Boxed items
+    PACK      // Packaged items
+    HOUR      // Time-based (e.g., labor)
+    // Phase 2: F&B units
+    KILOGRAM  // Weight (kg)
+    GRAM      // Weight (g)
+    LITER     // Volume (L)
+    MILLILITER // Volume (mL)
+    SERVING   // Portion/serving
+}
+
+enum ItemStatus {
+    AVAILABLE      // Ready for use
+    RESERVED       // Allocated to an event
+    OUT_OF_STOCK   // Depleted
+    MAINTENANCE    // Under repair/service
+    DAMAGED        // Broken/unusable
+    RETIRED        // No longer in service
 }
 
 // Audit Logs for tracking inventory checks
@@ -184,4 +239,97 @@ enum ChangeOperation {
     MIGRATE
     EXTENSION
     OTHER
+}
+
+// === PHASE 2: Food & Beverage Models ===
+
+// Suppliers for procurement management
+model Supplier {
+    id            String   @id @default(uuid())
+    name          String
+    contactName   String?
+    contactEmail  String?
+    contactPhone  String?
+    leadTimeDays  Int? // Typical delivery lead time in days
+    notes         String?
+    isActive      Boolean  @default(true)
+    createdAt     DateTime @default(now())
+    updatedAt     DateTime @updatedAt
+
+    // Relations
+    items Item[]
+
+    @@index([name])
+    @@index([isActive])
+    @@map("suppliers")
+}
+
+// Item Batches for FIFO tracking
+model ItemBatch {
+    id              String    @id @default(uuid())
+    itemId          String
+    lotNumber       String? // Supplier lot/batch number
+    quantity        Int // Current quantity in this batch
+    initialQuantity Int // Original received quantity
+
+    // Dates for FIFO ordering
+    manufacturedAt  DateTime?
+    receivedAt      DateTime  @default(now())
+    expirationDate  DateTime? // Critical for perishables
+
+    // Status
+    isOpen          Boolean   @default(true) // false when fully consumed
+    notes           String?
+
+    createdAt       DateTime  @default(now())
+    updatedAt       DateTime  @updatedAt
+
+    // Relations
+    item      Item       @relation(fields: [itemId], references: [id], onDelete: Cascade)
+    wasteLogs WasteLog[]
+
+    @@index([itemId])
+    @@index([expirationDate])
+    @@index([receivedAt])
+    @@index([isOpen])
+    @@map("item_batches")
+}
+
+// Waste tracking for cost analysis and reporting
+model WasteLog {
+    id         String      @id @default(uuid())
+    itemId     String
+    batchId    String? // Optional: specific batch
+    quantity   Int // Amount wasted
+    reason     WasteReason
+    notes      String?
+    costImpact Decimal?    @db.Decimal(10, 2) // Calculated from unitPrice
+    createdBy  String? // User ID from Stack Auth
+    timestamp  DateTime    @default(now())
+
+    // Relations
+    item  Item       @relation(fields: [itemId], references: [id], onDelete: Cascade)
+    batch ItemBatch? @relation(fields: [batchId], references: [id], onDelete: SetNull)
+
+    @@index([itemId])
+    @@index([batchId])
+    @@index([timestamp])
+    @@index([reason])
+    @@map("waste_logs")
+}
+
+// Storage type for perishables
+enum StorageType {
+    DRY    // Dry storage (ambient temperature)
+    CHILL  // Refrigerated (0-5°C)
+    FREEZE // Frozen (-18°C or below)
+}
+
+// Waste reasons for tracking and reporting
+enum WasteReason {
+    SPOILAGE       // Expired or went bad
+    OVERPRODUCTION // Made too much
+    DAMAGE         // Physical damage
+    CONTAMINATION  // Food safety issue
+    OTHER          // Other reasons
 }
