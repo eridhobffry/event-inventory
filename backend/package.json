@@ -7,12 +7,15 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "db:migrate": "prisma migrate dev",
-    "db:seed": "tsx prisma/seed.ts",
-    "db:studio": "prisma studio",
-    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev --schema=../prisma/schema.prisma",
+    "db:seed": "tsx ../prisma/seed.ts",
+    "db:studio": "prisma studio --schema=../prisma/schema.prisma",
+    "db:generate": "prisma generate --schema=../prisma/schema.prisma",
     "test": "jest",
     "lint": "eslint src --ext .ts"
+  },
+  "prisma": {
+    "schema": "../prisma/schema.prisma"
   },
   "dependencies": {
     "@fastify/cors": "^9.0.1",
