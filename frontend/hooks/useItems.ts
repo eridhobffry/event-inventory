@@ -10,6 +10,7 @@ export function useItems(params?: {
   page?: number;
   limit?: number;
   category?: string;
+  status?: string;
   location?: string;
   q?: string;
 }) {
@@ -45,11 +46,49 @@ export function useCreateItem() {
       const token = await user.getAuthJson().then((auth) => auth.accessToken);
       return api.createItem({ ...data, eventId: currentEventId }, token || "");
     },
+    onMutate: async (newItem) => {
+      // Cancel any outgoing refetches to avoid overwriting our optimistic update
+      await queryClient.cancelQueries({ queryKey: ["items", currentEventId] });
+
+      // Snapshot the previous value
+      const previousItems = queryClient.getQueryData(["items", currentEventId]);
+
+      // Optimistically update to the new value
+      queryClient.setQueryData(["items", currentEventId], (old: unknown) => {
+        if (!old) return old;
+        const oldData = old as { data: Item[]; pagination: { total: number } };
+        const optimisticItem = {
+          ...newItem,
+          id: `temp-${Date.now()}`,
+          eventId: currentEventId || "",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        return {
+          ...oldData,
+          data: [optimisticItem, ...(oldData.data || [])],
+          pagination: {
+            ...oldData.pagination,
+            total: (oldData.pagination?.total || 0) + 1,
+          },
+        };
+      });
+
+      // Return a context object with the snapshotted value
+      return { previousItems };
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["items"] });
       toast.success("Item created successfully");
     },
-    onError: (error: Error) => {
+    onError: (error: Error, _newItem, context) => {
+      // Rollback to the previous value on error
+      if (context?.previousItems) {
+        queryClient.setQueryData(
+          ["items", currentEventId],
+          context.previousItems
+        );
+      }
       toast.error(`Failed to create item: ${error.message}`);
     },
   });
@@ -72,12 +111,54 @@ export function useUpdateItem() {
       const token = await user.getAuthJson().then((auth) => auth.accessToken);
       return api.updateItem(id, data, token || "");
     },
+    onMutate: async ({ id, data }) => {
+      // Cancel outgoing refetches
+      await queryClient.cancelQueries({ queryKey: ["items", currentEventId] });
+      await queryClient.cancelQueries({ queryKey: ["items", id] });
+
+      // Snapshot previous values
+      const previousItems = queryClient.getQueryData(["items", currentEventId]);
+      const previousItem = queryClient.getQueryData(["items", id]);
+
+      // Optimistically update items list
+      queryClient.setQueryData(["items", currentEventId], (old: unknown) => {
+        if (!old) return old;
+        const oldData = old as { data: Item[] };
+        return {
+          ...oldData,
+          data: oldData.data?.map((item: Item) =>
+            item.id === id
+              ? { ...item, ...data, updatedAt: new Date().toISOString() }
+              : item
+          ),
+        };
+      });
+
+      // Optimistically update single item
+      queryClient.setQueryData(["items", id], (old: unknown) => {
+        if (!old) return old;
+        const oldItem = old as Item;
+        return { ...oldItem, ...data, updatedAt: new Date().toISOString() };
+      });
+
+      return { previousItems, previousItem };
+    },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["items", currentEventId] });
       queryClient.invalidateQueries({ queryKey: ["items", variables.id] });
       toast.success("Item updated successfully");
     },
-    onError: (error: Error) => {
+    onError: (error: Error, variables, context) => {
+      // Rollback on error
+      if (context?.previousItems) {
+        queryClient.setQueryData(
+          ["items", currentEventId],
+          context.previousItems
+        );
+      }
+      if (context?.previousItem) {
+        queryClient.setQueryData(["items", variables.id], context.previousItem);
+      }
       toast.error(`Failed to update item: ${error.message}`);
     },
   });

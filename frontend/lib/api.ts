@@ -26,17 +26,131 @@ export interface PaginatedResponse<T> {
   };
 }
 
+// Enums
+export type Category = "FURNITURE" | "AV_EQUIPMENT" | "DECOR" | "SUPPLIES" | "FOOD_BEVERAGE" | "OTHER";
+export type UnitOfMeasure = "EACH" | "PAIR" | "SET" | "METER" | "BOX" | "PACK" | "HOUR" | "KILOGRAM" | "GRAM" | "LITER" | "MILLILITER" | "SERVING";
+export type ItemStatus = "AVAILABLE" | "RESERVED" | "OUT_OF_STOCK" | "MAINTENANCE" | "DAMAGED" | "RETIRED";
+export type StorageType = "DRY" | "CHILL" | "FREEZE";
+export type WasteReason = "SPOILAGE" | "OVERPRODUCTION" | "DAMAGE" | "CONTAMINATION" | "OTHER";
+
+// === PHASE 2: Supplier Interface ===
+export interface Supplier {
+  id: string;
+  name: string;
+  contactName?: string;
+  contactEmail?: string;
+  contactPhone?: string;
+  leadTimeDays?: number;
+  notes?: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+
+  // Optional relations
+  items?: Item[];
+  _count?: {
+    items: number;
+  };
+}
+
+// === PHASE 2: Item Batch Interface ===
+export interface ItemBatch {
+  id: string;
+  itemId: string;
+  lotNumber?: string;
+  quantity: number;
+  initialQuantity: number;
+
+  // Dates for FIFO ordering
+  manufacturedAt?: string;
+  receivedAt: string;
+  expirationDate?: string;
+
+  // Status
+  isOpen: boolean;
+  notes?: string;
+
+  createdAt: string;
+  updatedAt: string;
+
+  // Optional relations
+  item?: Item;
+  wasteLogs?: WasteLog[];
+}
+
+// === PHASE 2: Waste Log Interface ===
+export interface WasteLog {
+  id: string;
+  itemId: string;
+  batchId?: string;
+  quantity: number;
+  reason: WasteReason;
+  notes?: string;
+  costImpact?: number;
+  createdBy?: string;
+  timestamp: string;
+
+  // Optional relations
+  item?: Partial<Item>;
+  batch?: ItemBatch;
+}
+
+// === PHASE 2: Waste Summary Interface ===
+export interface WasteSummary {
+  totalWaste: number;
+  totalCostImpact: number;
+  wasteByReason: {
+    reason: WasteReason;
+    quantity: number;
+    costImpact: number;
+    count: number;
+  }[];
+  topWastedItems: {
+    itemId: string;
+    itemName: string;
+    itemSku: string;
+    totalQuantity: number;
+    totalCostImpact: number;
+  }[];
+}
+
 export interface Item {
   id: string;
   name: string;
-  category: "FURNITURE" | "AV_EQUIPMENT" | "DECOR" | "SUPPLIES" | "OTHER";
+  sku: string;
+  category: Category;
   quantity: number;
+  unitOfMeasure: UnitOfMeasure;
+  unitPrice?: number;
+  status: ItemStatus;
   location: string;
+  bin?: string;
   description?: string;
   eventId: string;
   lastAudit?: string;
+
+  // === PHASE 2: Food & Beverage Fields ===
+  // Perishable Management
+  isPerishable: boolean;
+  storageType?: StorageType;
+
+  // Procurement
+  parLevel?: number;
+  reorderPoint?: number;
+  supplierId?: string;
+
+  // Compliance
+  isAlcohol: boolean;
+  abv?: number;
+  allergens: string[];
+
   createdAt: string;
   updatedAt: string;
+
+  // Optional relations
+  supplier?: Supplier;
+  batches?: ItemBatch[];
+  wasteLogs?: WasteLog[];
 }
 
 export interface AuditLog {
@@ -326,6 +440,169 @@ class ApiClient {
     version: string;
   }> {
     return this.request(`/api/v1/health`);
+  }
+
+  // === PHASE 2: Suppliers API ===
+  async getSuppliers(params?: {
+    page?: number;
+    limit?: number;
+    isActive?: boolean;
+    q?: string;
+  }): Promise<PaginatedResponse<Supplier>> {
+    const filteredParams = Object.entries(params || {}).reduce((acc, [key, value]) => {
+      if (value !== undefined && value !== null) {
+        acc[key] = String(value);
+      }
+      return acc;
+    }, {} as Record<string, string>);
+
+    const query = new URLSearchParams(filteredParams).toString();
+    return this.request<PaginatedResponse<Supplier>>(`/api/v1/suppliers?${query}`);
+  }
+
+  async getSupplier(id: string): Promise<Supplier> {
+    return this.request<Supplier>(`/api/v1/suppliers/${id}`);
+  }
+
+  async createSupplier(
+    data: Omit<Supplier, "id" | "createdAt" | "updatedAt">,
+    token: string
+  ): Promise<Supplier> {
+    return this.request<Supplier>(`/api/v1/suppliers`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateSupplier(
+    id: string,
+    data: Partial<Omit<Supplier, "id" | "createdAt" | "updatedAt">>,
+    token: string
+  ): Promise<Supplier> {
+    return this.request<Supplier>(`/api/v1/suppliers/${id}`, {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteSupplier(id: string, token: string): Promise<{ message: string }> {
+    return this.request(`/api/v1/suppliers/${id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  }
+
+  // === PHASE 2: Batches API ===
+  async createBatch(
+    itemId: string,
+    data: {
+      eventId: string;
+      quantity: number;
+      lotNumber?: string;
+      expirationDate?: string;
+      receivedAt?: string;
+      manufacturedAt?: string;
+      notes?: string;
+    },
+    token: string
+  ): Promise<ItemBatch> {
+    return this.request<ItemBatch>(`/api/v1/items/${itemId}/batches`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify(data),
+    });
+  }
+
+  async consumeBatch(
+    itemId: string,
+    data: {
+      eventId: string;
+      quantity: number;
+    },
+    token: string
+  ): Promise<{
+    itemId: string;
+    totalConsumed: number;
+    batches: {
+      id: string;
+      consumed: number;
+      remainingQuantity: number;
+      isOpen: boolean;
+      expirationDate?: string | null;
+    }[];
+  }> {
+    return this.request<{
+      itemId: string;
+      totalConsumed: number;
+      batches: {
+        id: string;
+        consumed: number;
+        remainingQuantity: number;
+        isOpen: boolean;
+        expirationDate?: string | null;
+      }[];
+    }>(`/api/v1/items/${itemId}/consume`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify(data),
+    });
+  }
+
+  // === PHASE 2: Waste Logs API ===
+  async createWasteLog(
+    data: {
+      itemId: string;
+      eventId: string;
+      batchId?: string;
+      quantity: number;
+      reason: WasteReason;
+      notes?: string;
+    },
+    token: string
+  ): Promise<WasteLog> {
+    return this.request<WasteLog>(`/api/v1/waste`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getWasteLogs(params?: {
+    page?: number;
+    limit?: number;
+    itemId?: string;
+    eventId?: string;
+    reason?: WasteReason;
+    startDate?: string;
+    endDate?: string;
+  }): Promise<PaginatedResponse<WasteLog>> {
+    const filteredParams = Object.entries(params || {}).reduce((acc, [key, value]) => {
+      if (value !== undefined && value !== null) {
+        acc[key] = String(value);
+      }
+      return acc;
+    }, {} as Record<string, string>);
+
+    const query = new URLSearchParams(filteredParams).toString();
+    return this.request<PaginatedResponse<WasteLog>>(`/api/v1/waste?${query}`);
+  }
+
+  async getWasteSummary(params?: {
+    eventId?: string;
+    startDate?: string;
+    endDate?: string;
+  }): Promise<WasteSummary> {
+    const filteredParams = Object.entries(params || {}).reduce((acc, [key, value]) => {
+      if (value !== undefined && value !== null) {
+        acc[key] = String(value);
+      }
+      return acc;
+    }, {} as Record<string, string>);
+
+    const query = new URLSearchParams(filteredParams).toString();
+    return this.request<WasteSummary>(`/api/v1/waste/summary?${query}`);
   }
 }
 
