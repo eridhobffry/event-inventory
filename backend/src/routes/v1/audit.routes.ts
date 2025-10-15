@@ -10,6 +10,7 @@ import {
   EventAccessRequest,
   verifyEventAccess,
 } from "../../middleware/eventAccess";
+import { verifyCanEditItems } from "../../middleware/permissions";
 
 // Validation schemas
 const createAuditSchema = z.object({
@@ -144,14 +145,14 @@ const auditRoutes: FastifyPluginAsync = async (server) => {
     }
   );
 
-  // POST /api/v1/audits - Create audit log (auth required)
+  // POST /api/v1/audits - Create audit log (EDITOR or higher)
   server.post(
     "/audits",
     {
-      preHandler: [verifyNeonAuth, verifyEventAccess],
+      preHandler: [verifyNeonAuth, verifyEventAccess, verifyCanEditItems],
       schema: {
         tags: ["audits"],
-        description: "Create a new audit log entry",
+        description: "Create a new audit log entry (EDITOR, ADMIN, or OWNER)",
         security: [{ bearerAuth: [] }],
         body: {
           type: "object",

@@ -5,11 +5,12 @@ import {
   verifyNeonAuth,
   AuthenticatedRequest,
 } from "../../middleware/neonAuth";
-import { Category } from "@prisma/client";
+import { Category, Role } from "@prisma/client";
 import {
   EventAccessRequest,
   verifyEventAccess,
 } from "../../middleware/eventAccess";
+import { verifyCanEditItems, hasPermission } from "../../middleware/permissions";
 
 // Validation schemas
 const createItemSchema = z.object({
@@ -209,14 +210,14 @@ const itemsRoutes: FastifyPluginAsync = async (server) => {
     }
   );
 
-  // POST /api/v1/items - Create new item (auth required)
+  // POST /api/v1/items - Create new item (EDITOR or higher)
   server.post(
     "/items",
     {
-      preHandler: [verifyNeonAuth, verifyEventAccess],
+      preHandler: [verifyNeonAuth, verifyEventAccess, verifyCanEditItems],
       schema: {
         tags: ["items"],
-        description: "Create a new inventory item",
+        description: "Create a new inventory item (EDITOR, ADMIN, or OWNER)",
         security: [{ bearerAuth: [] }],
         body: {
           type: "object",
@@ -264,14 +265,14 @@ const itemsRoutes: FastifyPluginAsync = async (server) => {
     }
   );
 
-  // PUT /api/v1/items/:id - Update item (auth required)
+  // PUT /api/v1/items/:id - Update item (EDITOR or higher)
   server.put(
     "/items/:id",
     {
-      preHandler: verifyNeonAuth,
+      preHandler: [verifyNeonAuth],
       schema: {
         tags: ["items"],
-        description: "Update an inventory item",
+        description: "Update an inventory item (EDITOR, ADMIN, or OWNER)",
         security: [{ bearerAuth: [] }],
         params: {
           type: "object",
@@ -308,7 +309,7 @@ const itemsRoutes: FastifyPluginAsync = async (server) => {
         });
       }
 
-      // Check if user has access to the event
+      // Check if user has access to the event and has EDITOR role or higher
       const membership = await prisma.eventMember.findUnique({
         where: {
           userId_eventId: {
@@ -322,6 +323,14 @@ const itemsRoutes: FastifyPluginAsync = async (server) => {
         return reply.status(403).send({
           error: "Forbidden",
           message: "You can only update items in your events",
+        });
+      }
+
+      // Verify user has EDITOR role or higher
+      if (!hasPermission(membership.role as Role, Role.EDITOR)) {
+        return reply.status(403).send({
+          error: "Forbidden",
+          message: "Only EDITOR, ADMIN, or OWNER can update items",
         });
       }
 
@@ -341,14 +350,14 @@ const itemsRoutes: FastifyPluginAsync = async (server) => {
     }
   );
 
-  // DELETE /api/v1/items/:id - Delete item (auth required)
+  // DELETE /api/v1/items/:id - Delete item (ADMIN or OWNER only)
   server.delete(
     "/items/:id",
     {
-      preHandler: verifyNeonAuth,
+      preHandler: [verifyNeonAuth],
       schema: {
         tags: ["items"],
-        description: "Delete an inventory item",
+        description: "Delete an inventory item (ADMIN or OWNER only)",
         security: [{ bearerAuth: [] }],
         params: {
           type: "object",
@@ -382,7 +391,7 @@ const itemsRoutes: FastifyPluginAsync = async (server) => {
         });
       }
 
-      // Check if user has access to the event
+      // Check if user has access to the event and has ADMIN role or higher
       const membership = await prisma.eventMember.findUnique({
         where: {
           userId_eventId: {
@@ -396,6 +405,14 @@ const itemsRoutes: FastifyPluginAsync = async (server) => {
         return reply.status(403).send({
           error: "Forbidden",
           message: "You can only delete items in your events",
+        });
+      }
+
+      // Verify user has ADMIN role or higher
+      if (!hasPermission(membership.role as Role, Role.ADMIN)) {
+        return reply.status(403).send({
+          error: "Forbidden",
+          message: "Only ADMIN or OWNER can delete items",
         });
       }
 
