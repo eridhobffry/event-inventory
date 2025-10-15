@@ -28,6 +28,7 @@ import {
   Calendar,
   Menu,
   LogOut,
+  Truck,
 } from "lucide-react";
 import { useEventContext } from "@/contexts/EventContext";
 import { useEvents } from "@/hooks/useEvents";
@@ -62,6 +63,7 @@ export function Navbar() {
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { href: "/events", label: "Events", icon: Calendar },
     { href: "/items", label: "Items", icon: PackageIcon },
+    { href: "/suppliers", label: "Suppliers", icon: Truck },
     { href: "/audits", label: "Audits", icon: ClipboardList },
   ];
 
@@ -135,6 +137,9 @@ export function Navbar() {
                           key={link.href}
                           href={link.href}
                           onClick={() => setMobileMenuOpen(false)}
+                          aria-current={
+                            isActive(link.href) ? "page" : undefined
+                          }
                         >
                           <Button
                             variant={
@@ -217,7 +222,11 @@ export function Navbar() {
               {/* Desktop Navigation */}
               <div className="hidden lg:flex items-center gap-1">
                 {navLinks.map((link) => (
-                  <Link key={link.href} href={link.href}>
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    aria-current={isActive(link.href) ? "page" : undefined}
+                  >
                     <Button
                       variant={isActive(link.href) ? "secondary" : "ghost"}
                       size="sm"
@@ -265,7 +274,12 @@ export function Navbar() {
       <div className="fixed bottom-0 left-0 right-0 z-40 border-t bg-background lg:hidden">
         <div className="flex items-center justify-around px-2 py-2 safe-area-inset-bottom">
           {navLinks.map((link) => (
-            <Link key={link.href} href={link.href} className="flex-1">
+            <Link
+              key={link.href}
+              href={link.href}
+              className="flex-1"
+              aria-current={isActive(link.href) ? "page" : undefined}
+            >
               <Button
                 variant={isActive(link.href) ? "secondary" : "ghost"}
                 size="sm"
