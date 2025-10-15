@@ -77,6 +77,7 @@ server.register(swagger, {
       { name: "health", description: "Health check endpoints" },
       { name: "events", description: "Event management operations" },
       { name: "event-members", description: "Event member management" },
+      { name: "invitations", description: "Event invitation management" },
       { name: "items", description: "Inventory item operations" },
       { name: "audits", description: "Audit log operations" },
       { name: "api-keys", description: "API key management" },
@@ -125,6 +126,7 @@ server.get(
 // Register routes
 import eventsRoutes from "./routes/v1/events.routes";
 import eventMembersRoutes from "./routes/v1/eventMembers.routes";
+import invitationsRoutes from "./routes/v1/invitations.routes";
 import itemsRoutes from "./routes/v1/items.routes";
 import auditRoutes from "./routes/v1/audit.routes";
 import apiKeysRoutes from "./routes/v1/apiKeys.routes";
@@ -132,6 +134,7 @@ import mcpRoutes from "./routes/v1/mcp.routes";
 
 server.register(eventsRoutes, { prefix: "/api/v1" });
 server.register(eventMembersRoutes, { prefix: "/api/v1" });
+server.register(invitationsRoutes, { prefix: "/api/v1" });
 server.register(itemsRoutes, { prefix: "/api/v1" });
 server.register(auditRoutes, { prefix: "/api/v1" });
 server.register(apiKeysRoutes, { prefix: "/api/v1" });

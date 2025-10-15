@@ -8,8 +8,9 @@ import {
 import {
   EventAccessRequest,
   verifyEventAccess,
-  verifyEventOwner,
 } from "../../middleware/eventAccess";
+import { verifyOwnerRole } from "../../middleware/permissions";
+import { Role } from "@prisma/client";
 
 // Validation schemas
 const createEventSchema = z.object({
@@ -234,7 +235,7 @@ const eventsRoutes: FastifyPluginAsync = async (server) => {
         data: {
           userId,
           eventId: event.id,
-          role: "owner",
+          role: Role.OWNER,
         },
       });
 
@@ -242,11 +243,11 @@ const eventsRoutes: FastifyPluginAsync = async (server) => {
     }
   );
 
-  // PUT /api/v1/events/:id - Update event (owner only)
+  // PUT /api/v1/events/:id - Update event (OWNER only)
   server.put(
     "/events/:id",
     {
-      preHandler: [verifyNeonAuth, verifyEventAccess, verifyEventOwner],
+      preHandler: [verifyNeonAuth, verifyEventAccess, verifyOwnerRole],
       schema: {
         tags: ["events"],
         description: "Update an event (owner only)",
@@ -298,11 +299,11 @@ const eventsRoutes: FastifyPluginAsync = async (server) => {
     }
   );
 
-  // DELETE /api/v1/events/:id - Delete event (owner only)
+  // DELETE /api/v1/events/:id - Delete event (OWNER only)
   server.delete(
     "/events/:id",
     {
-      preHandler: [verifyNeonAuth, verifyEventAccess, verifyEventOwner],
+      preHandler: [verifyNeonAuth, verifyEventAccess, verifyOwnerRole],
       schema: {
         tags: ["events"],
         description: "Delete an event (owner only)",
