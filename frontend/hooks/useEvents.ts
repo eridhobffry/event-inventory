@@ -46,15 +46,20 @@ export function useEvents() {
 
 // Fetch single event
 export function useEvent(eventId: string | null) {
+  const authToken = useAuthToken();
+
   return useQuery<Event>({
-    queryKey: ["events", eventId],
+    queryKey: ["events", eventId, authToken],
     queryFn: async () => {
       const response = await apiClient.get(`/events/${eventId}`, {
-        headers: { "x-event-id": eventId || "" },
+        headers: {
+          "x-event-id": eventId || "",
+          ...(authToken && { Authorization: `Bearer ${authToken}` }),
+        },
       });
       return response.data;
     },
-    enabled: !!eventId,
+    enabled: !!eventId && !!authToken,
   });
 }
 
