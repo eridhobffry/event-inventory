@@ -9,9 +9,10 @@ import {
   useDeleteEvent,
   UpdateEventData,
 } from "@/hooks/useEvents";
-import { useEventMembers } from "@/hooks/useEventMembers";
+import { MemberManagementCard } from "@/components/MemberManagementCard";
 import { Navbar } from "@/components/Navbar";
 import { Button } from "@/components/ui/button";
+import type { Role } from "@/hooks/useInvitations";
 import {
   Card,
   CardContent,
@@ -22,7 +23,7 @@ import {
 import { EventForm } from "@/components/EventForm";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, Calendar, MapPin, Users, Trash2, Edit } from "lucide-react";
+import { ArrowLeft, Calendar, MapPin, Trash2, Edit } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -33,7 +34,6 @@ export default function EventDetailsPage() {
   const eventId = params.id as string;
 
   const { data: event, isLoading } = useEvent(eventId);
-  const { data: membersData } = useEventMembers(eventId);
   const updateEvent = useUpdateEvent();
   const deleteEvent = useDeleteEvent();
 
@@ -85,8 +85,8 @@ export default function EventDetailsPage() {
     }
   };
 
-  const members = membersData?.data || [];
-  const isOwner = event?.role === "owner";
+  const userRole = (event?.role?.toUpperCase() || "VIEWER") as Role;
+  const isOwner = userRole === "OWNER";
 
   return (
     <div className="min-h-screen bg-background">
@@ -210,60 +210,11 @@ export default function EventDetailsPage() {
               </TabsContent>
 
               <TabsContent value="members">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Members</CardTitle>
-                    <CardDescription>
-                      {members.length}{" "}
-                      {members.length === 1 ? "member" : "members"} in this
-                      event
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-2">
-                      {members.map((member) => {
-                        const isCurrentUser = member.userId === user?.id;
-                        const displayName = isCurrentUser
-                          ? `You (${user.displayName || user.primaryEmail})`
-                          : `User ${member.userId.slice(0, 8)}...`;
-
-                        return (
-                          <div
-                            key={member.id}
-                            className="flex items-center justify-between p-3 border rounded-lg"
-                          >
-                            <div className="flex items-center gap-3">
-                              <Users className="h-4 w-4 text-muted-foreground" />
-                              <div>
-                                <p
-                                  className="text-sm font-medium"
-                                  title={member.userId}
-                                >
-                                  {displayName}
-                                </p>
-                                <p className="text-xs text-muted-foreground">
-                                  Joined{" "}
-                                  {new Date(
-                                    member.createdAt
-                                  ).toLocaleDateString()}
-                                </p>
-                              </div>
-                            </div>
-                            <Badge
-                              variant={
-                                member.role === "owner"
-                                  ? "default"
-                                  : "secondary"
-                              }
-                            >
-                              {member.role}
-                            </Badge>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </CardContent>
-                </Card>
+                <MemberManagementCard
+                  eventId={eventId}
+                  userRole={userRole}
+                  currentUserId={user?.id || ""}
+                />
               </TabsContent>
             </Tabs>
           </div>

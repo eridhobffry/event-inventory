@@ -6,6 +6,8 @@ import { useAuditStats } from "@/hooks/useAudits";
 import { useEventContext } from "@/contexts/EventContext";
 import { Navbar } from "@/components/Navbar";
 import { StatsCard } from "@/components/StatsCard";
+import { PendingInvitationsCard } from "@/components/PendingInvitationsCard";
+import { RoleBadge } from "@/components/RoleBadge";
 import {
   Card,
   CardContent,
@@ -14,7 +16,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import {
   PackageIcon,
   ClipboardList,
@@ -26,6 +27,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import type { Role } from "@/hooks/useInvitations";
 
 export default function DashboardPage() {
   const user = useUser({ or: "redirect" });
@@ -87,13 +89,7 @@ export default function DashboardPage() {
               <p className="text-muted-foreground">
                 Welcome back, {user.displayName || "there"}!
               </p>
-              <Badge
-                variant={
-                  currentEvent.role === "owner" ? "default" : "secondary"
-                }
-              >
-                {currentEvent.role === "owner" ? "Owner" : "Member"}
-              </Badge>
+              <RoleBadge role={currentEvent.role.toUpperCase() as Role} />
             </div>
             {currentEvent.location && (
               <div className="flex items-center text-sm text-muted-foreground mt-1">
@@ -116,6 +112,11 @@ export default function DashboardPage() {
               Add Item
             </Button>
           </Link>
+        </div>
+
+        {/* Pending Invitations */}
+        <div className="mb-8">
+          <PendingInvitationsCard />
         </div>
 
         {/* Stats Cards */}
