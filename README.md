@@ -119,6 +119,19 @@ event-inventory/
 - **API Documentation**: Auto-generated OpenAPI/Swagger docs
 - **MCP Server**: JSON-RPC 2.0 server for AI assistant integration
 
+### 🎨 2025 UX Features (New!)
+
+- **Dark Mode**: System preference detection + manual toggle (Light/Dark/System)
+- **Loading Skeletons**: Smooth loading states for all data views
+- **Accessibility**: WCAG 2.2 AA compliant with keyboard navigation
+- **Mobile-First**: Responsive design with touch-friendly UI (44px+ targets)
+- **Confirmation Dialogs**: Prevent accidental destructive actions
+- **Empty States**: Helpful CTAs when no data exists
+- **Performance**: Optimized rendering and perceived performance
+- **Reduced Motion**: Respects user accessibility preferences
+
+See [UX_IMPROVEMENTS_2025.md](./docs/UX_IMPROVEMENTS_2025.md) for detailed implementation guide.
+
 ### 🔮 AI-Ready Architecture (Future)
 
 - **Model Context Protocol**: Connect Claude or ChatGPT to query inventory
