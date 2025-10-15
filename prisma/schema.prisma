@@ -1,0 +1,149 @@
+// Prisma schema for EventForge Inventory
+// PostgreSQL 17 with pgvector extension via Neon
+
+generator client {
+    provider        = "prisma-client-js"
+    previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+    provider   = "postgresql"
+    url        = env("DATABASE_URL")
+    extensions = [vector]
+}
+
+// Events - each event has its own inventory
+model Event {
+    id          String    @id @default(uuid())
+    name        String
+    description String?
+    startDate   DateTime?
+    endDate     DateTime?
+    location    String?
+    createdById String // User ID from Stack Auth
+    createdAt   DateTime  @default(now())
+    updatedAt   DateTime  @updatedAt
+
+    // Relations
+    items     Item[]
+    members   EventMember[]
+    auditLogs AuditLog[]
+
+    @@index([createdById])
+    @@map("events")
+}
+
+// Event Members - junction table for users and events
+model EventMember {
+    id        String   @id @default(uuid())
+    userId    String // User ID from Stack Auth
+    eventId   String
+    role      String   @default("member") // "owner", "member" - for future use
+    createdAt DateTime @default(now())
+
+    // Relations
+    event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+    @@unique([userId, eventId])
+    @@index([userId])
+    @@index([eventId])
+    @@map("event_members")
+}
+
+// Inventory Items
+model Item {
+    id          String                       @id @default(uuid())
+    name        String
+    category    Category
+    quantity    Int                          @default(0)
+    location    String
+    description String?
+    lastAudit   DateTime?
+    vectorDesc  Unsupported("vector(1536)")? // For future AI semantic search
+    eventId     String // FK to Event
+    createdAt   DateTime                     @default(now())
+    updatedAt   DateTime                     @updatedAt
+
+    // Relations
+    event     Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+    auditLogs AuditLog[]
+
+    @@index([category])
+    @@index([name])
+    @@index([location])
+    @@index([eventId])
+    @@map("items")
+}
+
+enum Category {
+    FURNITURE
+    AV_EQUIPMENT
+    DECOR
+    SUPPLIES
+    OTHER
+}
+
+// Audit Logs for tracking inventory checks
+model AuditLog {
+    id               String   @id @default(uuid())
+    itemId           String
+    eventId          String // FK to Event for scoped queries
+    actualQuantity   Int
+    expectedQuantity Int
+    discrepancy      Int // actualQuantity - expectedQuantity
+    notes            String?
+    contextId        String? // For MCP session tracking
+    createdBy        String? // User ID from Stack Auth
+    timestamp        DateTime @default(now())
+
+    // Relations
+    item  Item  @relation(fields: [itemId], references: [id], onDelete: Cascade)
+    event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+    @@index([itemId])
+    @@index([eventId])
+    @@index([timestamp])
+    @@index([contextId])
+    @@map("audit_logs")
+}
+
+// API Keys for external AI/MCP access
+model ApiKey {
+    id        String    @id @default(uuid())
+    name      String // Friendly name (e.g., "Claude Desktop")
+    keyHash   String    @unique // Hashed API key
+    userId    String // Owner from Supabase Auth
+    lastUsed  DateTime?
+    createdAt DateTime  @default(now())
+    expiresAt DateTime?
+    isActive  Boolean   @default(true)
+
+    @@index([userId])
+    @@index([keyHash])
+    @@map("api_keys")
+}
+
+// Database Change Log for tracking schema operations
+model DatabaseChangeLog {
+    id          String          @id @default(uuid())
+    operation   ChangeOperation
+    description String
+    metadata    Json? // Store additional info (e.g., table names, column details)
+    createdBy   String? // User or system identifier
+    timestamp   DateTime        @default(now())
+    status      String          @default("completed") // completed, failed, in_progress
+
+    @@index([timestamp])
+    @@index([operation])
+    @@map("database_change_logs")
+}
+
+enum ChangeOperation {
+    CREATE_TABLE
+    ALTER_TABLE
+    DROP_TABLE
+    SEED
+    MIGRATE
+    EXTENSION
+    OTHER
+}
