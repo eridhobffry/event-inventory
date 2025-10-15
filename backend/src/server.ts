@@ -34,6 +34,7 @@ server.register(cors, {
 // Security headers
 server.register(helmet, {
   contentSecurityPolicy: false,
+  frameguard: false, // Disable X-Frame-Options to allow Swagger UI embedding
 });
 
 // Rate limiting
@@ -90,7 +91,7 @@ server.register(swaggerUi, {
     docExpansion: "list",
     deepLinking: true,
   },
-  staticCSP: true,
+  staticCSP: false, // Disable CSP to allow iframe embedding from frontend
 });
 
 // Health check endpoint
