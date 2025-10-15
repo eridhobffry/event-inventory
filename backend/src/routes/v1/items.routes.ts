@@ -1,0 +1,418 @@
+import { FastifyPluginAsync } from "fastify";
+import { z } from "zod";
+import { prisma } from "../../server";
+import {
+  verifyNeonAuth,
+  AuthenticatedRequest,
+} from "../../middleware/neonAuth";
+import { Category } from "@prisma/client";
+import {
+  EventAccessRequest,
+  verifyEventAccess,
+} from "../../middleware/eventAccess";
+
+// Validation schemas
+const createItemSchema = z.object({
+  name: z.string().min(1).max(255),
+  category: z.nativeEnum(Category),
+  quantity: z.number().int().min(0),
+  location: z.string().min(1).max(255),
+  description: z.string().optional(),
+  eventId: z.string().uuid(),
+});
+
+const updateItemSchema = createItemSchema.partial().omit({ eventId: true });
+
+const querySchema = z.object({
+  page: z.string().optional().default("1"),
+  limit: z.string().optional().default("20"),
+  category: z.nativeEnum(Category).optional(),
+  location: z.string().optional(),
+  q: z.string().optional(), // search query
+  eventId: z.string().uuid().optional(),
+});
+
+const itemsRoutes: FastifyPluginAsync = async (server) => {
+  // GET /api/v1/items - List items with pagination and filters
+  server.get(
+    "/items",
+    {
+      schema: {
+        tags: ["items"],
+        description:
+          "Get list of inventory items with pagination and filters (requires eventId)",
+        querystring: {
+          type: "object",
+          properties: {
+            page: { type: "string", default: "1" },
+            limit: { type: "string", default: "20" },
+            category: { type: "string", enum: Object.values(Category) },
+            location: { type: "string" },
+            q: { type: "string", description: "Search query for name" },
+            eventId: {
+              type: "string",
+              format: "uuid",
+              description: "Filter by event ID",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              data: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    id: { type: "string" },
+                    name: { type: "string" },
+                    category: { type: "string" },
+                    quantity: { type: "number" },
+                    location: { type: "string" },
+                    description: { type: "string" },
+                    eventId: { type: "string" },
+                    lastAudit: { type: "string" },
+                    createdAt: { type: "string" },
+                    updatedAt: { type: "string" },
+                  },
+                },
+              },
+              pagination: {
+                type: "object",
+                properties: {
+                  page: { type: "number" },
+                  limit: { type: "number" },
+                  total: { type: "number" },
+                  totalPages: { type: "number" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const query = querySchema.parse(request.query);
+      const page = parseInt(query.page);
+      const limit = Math.min(parseInt(query.limit), 100); // Max 100 items per page
+
+      // Get eventId from query or header
+      const eventId =
+        query.eventId || (request.headers["x-event-id"] as string);
+
+      if (!eventId) {
+        return reply.status(400).send({
+          error: "Bad Request",
+          message:
+            "Event ID is required (provide via eventId query parameter or x-event-id header)",
+        });
+      }
+
+      // Build where clause
+      const where: any = { eventId };
+      if (query.category) where.category = query.category;
+      if (query.location)
+        where.location = { contains: query.location, mode: "insensitive" };
+      if (query.q) where.name = { contains: query.q, mode: "insensitive" };
+
+      // Get total count
+      const total = await prisma.item.count({ where });
+
+      // Get items
+      const items = await prisma.item.findMany({
+        where,
+        skip: (page - 1) * limit,
+        take: limit,
+        orderBy: { createdAt: "desc" },
+      });
+
+      return {
+        data: items,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+        },
+      };
+    }
+  );
+
+  // GET /api/v1/items/:id - Get single item
+  server.get(
+    "/items/:id",
+    {
+      schema: {
+        tags: ["items"],
+        description: "Get a single inventory item by ID",
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" },
+          },
+          required: ["id"],
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              id: { type: "string" },
+              name: { type: "string" },
+              category: { type: "string" },
+              quantity: { type: "number" },
+              location: { type: "string" },
+              description: { type: "string" },
+              eventId: { type: "string" },
+              lastAudit: { type: "string" },
+              createdAt: { type: "string" },
+              updatedAt: { type: "string" },
+              auditLogs: {
+                type: "array",
+                items: {
+                  type: "object",
+                },
+              },
+            },
+          },
+          404: {
+            type: "object",
+            properties: {
+              error: { type: "string" },
+              message: { type: "string" },
+            },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+
+      const item = await prisma.item.findUnique({
+        where: { id },
+        include: {
+          auditLogs: {
+            orderBy: { timestamp: "desc" },
+            take: 10,
+          },
+        },
+      });
+
+      if (!item) {
+        return reply.status(404).send({
+          error: "Not Found",
+          message: "Item not found",
+        });
+      }
+
+      return item;
+    }
+  );
+
+  // POST /api/v1/items - Create new item (auth required)
+  server.post(
+    "/items",
+    {
+      preHandler: [verifyNeonAuth, verifyEventAccess],
+      schema: {
+        tags: ["items"],
+        description: "Create a new inventory item",
+        security: [{ bearerAuth: [] }],
+        body: {
+          type: "object",
+          required: ["name", "category", "quantity", "location", "eventId"],
+          properties: {
+            name: { type: "string" },
+            category: { type: "string", enum: Object.values(Category) },
+            quantity: { type: "number" },
+            location: { type: "string" },
+            description: { type: "string" },
+            eventId: { type: "string", format: "uuid" },
+          },
+        },
+        response: {
+          201: {
+            type: "object",
+            properties: {
+              id: { type: "string" },
+              name: { type: "string" },
+              category: { type: "string" },
+              quantity: { type: "number" },
+              location: { type: "string" },
+              eventId: { type: "string" },
+            },
+          },
+        },
+      },
+    },
+    async (request: EventAccessRequest, reply) => {
+      const data = createItemSchema.parse(request.body);
+
+      // Verify the eventId in the body matches the user's access
+      if (data.eventId !== request.eventId) {
+        return reply.status(403).send({
+          error: "Forbidden",
+          message: "You can only create items in events you have access to",
+        });
+      }
+
+      const item = await prisma.item.create({
+        data,
+      });
+
+      return reply.status(201).send(item);
+    }
+  );
+
+  // PUT /api/v1/items/:id - Update item (auth required)
+  server.put(
+    "/items/:id",
+    {
+      preHandler: verifyNeonAuth,
+      schema: {
+        tags: ["items"],
+        description: "Update an inventory item",
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" },
+          },
+          required: ["id"],
+        },
+        body: {
+          type: "object",
+          properties: {
+            name: { type: "string" },
+            category: { type: "string", enum: Object.values(Category) },
+            quantity: { type: "number" },
+            location: { type: "string" },
+            description: { type: "string" },
+          },
+        },
+      },
+    },
+    async (request: AuthenticatedRequest, reply) => {
+      const { id } = request.params as { id: string };
+      const data = updateItemSchema.parse(request.body);
+
+      // Fetch the item to get its eventId
+      const existingItem = await prisma.item.findUnique({
+        where: { id },
+      });
+
+      if (!existingItem) {
+        return reply.status(404).send({
+          error: "Not Found",
+          message: "Item not found",
+        });
+      }
+
+      // Check if user has access to the event
+      const membership = await prisma.eventMember.findUnique({
+        where: {
+          userId_eventId: {
+            userId: request.user!.id,
+            eventId: existingItem.eventId,
+          },
+        },
+      });
+
+      if (!membership) {
+        return reply.status(403).send({
+          error: "Forbidden",
+          message: "You can only update items in your events",
+        });
+      }
+
+      try {
+        const item = await prisma.item.update({
+          where: { id },
+          data,
+        });
+
+        return item;
+      } catch (error) {
+        return reply.status(404).send({
+          error: "Not Found",
+          message: "Item not found",
+        });
+      }
+    }
+  );
+
+  // DELETE /api/v1/items/:id - Delete item (auth required)
+  server.delete(
+    "/items/:id",
+    {
+      preHandler: verifyNeonAuth,
+      schema: {
+        tags: ["items"],
+        description: "Delete an inventory item",
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" },
+          },
+          required: ["id"],
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              message: { type: "string" },
+            },
+          },
+        },
+      },
+    },
+    async (request: AuthenticatedRequest, reply) => {
+      const { id } = request.params as { id: string };
+
+      // Fetch the item to get its eventId
+      const existingItem = await prisma.item.findUnique({
+        where: { id },
+      });
+
+      if (!existingItem) {
+        return reply.status(404).send({
+          error: "Not Found",
+          message: "Item not found",
+        });
+      }
+
+      // Check if user has access to the event
+      const membership = await prisma.eventMember.findUnique({
+        where: {
+          userId_eventId: {
+            userId: request.user!.id,
+            eventId: existingItem.eventId,
+          },
+        },
+      });
+
+      if (!membership) {
+        return reply.status(403).send({
+          error: "Forbidden",
+          message: "You can only delete items in your events",
+        });
+      }
+
+      try {
+        await prisma.item.delete({
+          where: { id },
+        });
+
+        return { message: "Item deleted successfully" };
+      } catch (error) {
+        return reply.status(404).send({
+          error: "Not Found",
+          message: "Item not found",
+        });
+      }
+    }
+  );
+};
+
+export default itemsRoutes;
