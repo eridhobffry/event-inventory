@@ -19,6 +19,12 @@ export const metadata: Metadata = {
   title: "EventForge Inventory - Event Inventory Management",
   description:
     "Modern inventory management system for event organizers with AI-ready MCP integration",
+  viewport: {
+    width: "device-width",
+    initialScale: 1,
+    maximumScale: 5,
+    userScalable: true,
+  },
 };
 
 export default function RootLayout({

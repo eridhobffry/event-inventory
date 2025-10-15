@@ -47,17 +47,19 @@ export default function DashboardPage() {
     return (
       <div className="min-h-screen bg-background">
         <Navbar />
-        <main className="container mx-auto px-4 py-8">
+        <main className="container mx-auto px-4 py-6 md:py-8">
           <Card className="max-w-2xl mx-auto">
-            <CardContent className="flex flex-col items-center justify-center py-16">
-              <PackageIcon className="h-16 w-16 text-muted-foreground mb-4" />
-              <h3 className="text-lg font-semibold mb-2">No Event Selected</h3>
-              <p className="text-sm text-muted-foreground mb-4 text-center">
+            <CardContent className="flex flex-col items-center justify-center py-12 md:py-16 px-4">
+              <PackageIcon className="h-12 w-12 md:h-16 md:w-16 text-muted-foreground mb-4" />
+              <h3 className="text-base md:text-lg font-semibold mb-2">
+                No Event Selected
+              </h3>
+              <p className="text-sm text-muted-foreground mb-4 text-center max-w-md">
                 Select an event from the dropdown above or create a new event to
                 get started
               </p>
-              <Link href="/events/new">
-                <Button>
+              <Link href="/events/new" className="w-full sm:w-auto">
+                <Button className="w-full sm:w-auto min-h-[44px]">
                   <Plus className="h-4 w-4 mr-2" />
                   Create Event
                 </Button>
@@ -72,46 +74,62 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
-      <main className="container mx-auto px-4 py-8">
-        <div className="flex justify-between items-start mb-8">
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-3xl font-bold">{currentEvent.name}</h1>
-              {currentEvent.role === "owner" && (
-                <Link href={`/events/${currentEvent.id}`}>
-                  <Button variant="ghost" size="sm">
-                    <Edit2 className="h-4 w-4" />
-                  </Button>
-                </Link>
-              )}
+      <main className="container mx-auto px-4 py-6 md:py-8">
+        {/* Header Section */}
+        <div className="flex flex-col gap-4 mb-6 md:mb-8">
+          <div className="flex justify-between items-start gap-3">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h1 className="text-2xl md:text-3xl font-bold truncate">
+                  {currentEvent.name}
+                </h1>
+                {currentEvent.role === "owner" && (
+                  <Link href={`/events/${currentEvent.id}`}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="min-h-[44px] min-w-[44px]"
+                    >
+                      <Edit2 className="h-4 w-4" />
+                    </Button>
+                  </Link>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-2 md:gap-4 mt-2">
+                <p className="text-sm md:text-base text-muted-foreground">
+                  Welcome back, {user.displayName || "there"}!
+                </p>
+                <RoleBadge role={currentEvent.role.toUpperCase() as Role} />
+              </div>
             </div>
-            <div className="flex items-center gap-4 mt-2">
-              <p className="text-muted-foreground">
-                Welcome back, {user.displayName || "there"}!
-              </p>
-              <RoleBadge role={currentEvent.role.toUpperCase() as Role} />
-            </div>
+            <Link href="/items/new" className="flex-shrink-0">
+              <Button className="min-h-[44px]">
+                <Plus className="h-4 w-4 mr-2" />
+                <span className="hidden sm:inline">Add Item</span>
+                <span className="sm:hidden">Add</span>
+              </Button>
+            </Link>
+          </div>
+
+          {/* Event Details */}
+          <div className="flex flex-col sm:flex-row gap-2 text-sm text-muted-foreground">
             {currentEvent.location && (
-              <div className="flex items-center text-sm text-muted-foreground mt-1">
-                <MapPin className="h-4 w-4 mr-1" />
-                {currentEvent.location}
+              <div className="flex items-center">
+                <MapPin className="h-4 w-4 mr-1 flex-shrink-0" />
+                <span className="truncate">{currentEvent.location}</span>
               </div>
             )}
             {currentEvent.startDate && (
-              <div className="flex items-center text-sm text-muted-foreground mt-1">
-                <Calendar className="h-4 w-4 mr-1" />
-                {new Date(currentEvent.startDate).toLocaleDateString()}
-                {currentEvent.endDate &&
-                  ` - ${new Date(currentEvent.endDate).toLocaleDateString()}`}
+              <div className="flex items-center">
+                <Calendar className="h-4 w-4 mr-1 flex-shrink-0" />
+                <span>
+                  {new Date(currentEvent.startDate).toLocaleDateString()}
+                  {currentEvent.endDate &&
+                    ` - ${new Date(currentEvent.endDate).toLocaleDateString()}`}
+                </span>
               </div>
             )}
           </div>
-          <Link href="/items/new">
-            <Button>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Item
-            </Button>
-          </Link>
         </div>
 
         {/* Pending Invitations */}
@@ -120,7 +138,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Stats Cards */}
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6 md:mb-8">
           <StatsCard
             title="Total Items"
             value={totalItems}
@@ -147,7 +165,7 @@ export default function DashboardPage() {
           />
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
           {/* Recent Items */}
           <Card>
             <CardHeader>
@@ -158,21 +176,21 @@ export default function DashboardPage() {
               {itemsLoading ? (
                 <p className="text-sm text-muted-foreground">Loading...</p>
               ) : itemsData?.data && itemsData.data.length > 0 ? (
-                <div className="space-y-4">
+                <div className="space-y-3">
                   {itemsData.data.map((item) => (
                     <Link
                       key={item.id}
                       href={`/items/${item.id}`}
                       className="block"
                     >
-                      <div className="flex items-center justify-between p-2 rounded hover:bg-accent">
-                        <div>
-                          <p className="font-medium">{item.name}</p>
-                          <p className="text-sm text-muted-foreground">
+                      <div className="flex items-center justify-between p-3 rounded-lg hover:bg-accent transition-colors min-h-[60px]">
+                        <div className="flex-1 min-w-0 mr-3">
+                          <p className="font-medium truncate">{item.name}</p>
+                          <p className="text-sm text-muted-foreground truncate">
                             {item.category.replace(/_/g, " ")} • {item.location}
                           </p>
                         </div>
-                        <div className="text-sm font-medium">
+                        <div className="text-sm font-medium flex-shrink-0">
                           Qty: {item.quantity}
                         </div>
                       </div>
@@ -184,8 +202,8 @@ export default function DashboardPage() {
                   No items yet. Add your first item!
                 </p>
               )}
-              <Link href="/items">
-                <Button variant="outline" className="w-full mt-4">
+              <Link href="/items" className="block">
+                <Button variant="outline" className="w-full mt-4 min-h-[44px]">
                   View All Items
                 </Button>
               </Link>
@@ -202,14 +220,14 @@ export default function DashboardPage() {
               {statsLoading ? (
                 <p className="text-sm text-muted-foreground">Loading...</p>
               ) : recentAudits.length > 0 ? (
-                <div className="space-y-4">
+                <div className="space-y-3">
                   {recentAudits.map((audit) => (
                     <div
                       key={audit.id}
-                      className="flex items-center justify-between p-2 rounded"
+                      className="flex items-center justify-between p-3 rounded-lg border min-h-[60px]"
                     >
-                      <div>
-                        <p className="font-medium">
+                      <div className="flex-1 min-w-0 mr-3">
+                        <p className="font-medium truncate">
                           {audit.item?.name || "Unknown Item"}
                         </p>
                         <p className="text-sm text-muted-foreground">
@@ -218,7 +236,7 @@ export default function DashboardPage() {
                         </p>
                       </div>
                       <div
-                        className={`text-sm font-medium ${
+                        className={`text-sm font-medium flex-shrink-0 ${
                           audit.discrepancy === 0
                             ? "text-green-600"
                             : "text-orange-600"
@@ -234,8 +252,8 @@ export default function DashboardPage() {
                   No audits yet. Create your first audit!
                 </p>
               )}
-              <Link href="/audits">
-                <Button variant="outline" className="w-full mt-4">
+              <Link href="/audits" className="block">
+                <Button variant="outline" className="w-full mt-4 min-h-[44px]">
                   View All Audits
                 </Button>
               </Link>

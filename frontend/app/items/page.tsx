@@ -22,6 +22,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,7 +33,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Search, Pencil, Trash2 } from "lucide-react";
+import { Plus, Search, Pencil, Trash2, MapPin, Package } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -86,16 +87,16 @@ export default function ItemsPage() {
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
-      <main className="container mx-auto px-4 py-8">
-        <div className="flex justify-between items-center mb-8">
+      <main className="container mx-auto px-4 py-6 md:py-8">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 md:mb-8">
           <div>
-            <h1 className="text-3xl font-bold">Inventory Items</h1>
-            <p className="text-muted-foreground">
+            <h1 className="text-2xl md:text-3xl font-bold">Inventory Items</h1>
+            <p className="text-sm md:text-base text-muted-foreground mt-1">
               Manage your event inventory items
             </p>
           </div>
-          <Link href="/items/new">
-            <Button>
+          <Link href="/items/new" className="w-full sm:w-auto">
+            <Button className="w-full sm:w-auto min-h-[44px]">
               <Plus className="h-4 w-4 mr-2" />
               Add Item
             </Button>
@@ -103,18 +104,18 @@ export default function ItemsPage() {
         </div>
 
         {/* Filters */}
-        <div className="flex gap-4 mb-6">
+        <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 mb-6">
           <div className="flex-1 relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Search items..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-10"
+              className="pl-10 min-h-[44px]"
             />
           </div>
           <Select value={category} onValueChange={setCategory}>
-            <SelectTrigger className="w-[200px]">
+            <SelectTrigger className="w-full sm:w-[200px] min-h-[44px]">
               <SelectValue placeholder="Category" />
             </SelectTrigger>
             <SelectContent>
@@ -127,68 +128,155 @@ export default function ItemsPage() {
           </Select>
         </div>
 
-        {/* Table */}
+        {/* Items List/Table */}
         {isLoading ? (
           <div className="text-center py-12">
             <p className="text-muted-foreground">Loading items...</p>
           </div>
         ) : data?.data && data.data.length > 0 ? (
           <>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Category</TableHead>
-                  <TableHead>Quantity</TableHead>
-                  <TableHead>Location</TableHead>
-                  <TableHead>Last Audit</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {data.data.map((item) => (
-                  <TableRow key={item.id}>
-                    <TableCell className="font-medium">{item.name}</TableCell>
-                    <TableCell>
-                      <Badge variant={getCategoryBadgeVariant(item.category)}>
-                        {item.category.replace(/_/g, " ")}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{item.quantity}</TableCell>
-                    <TableCell>{item.location}</TableCell>
-                    <TableCell>
-                      {item.lastAudit
-                        ? new Date(item.lastAudit).toLocaleDateString()
-                        : "Never"}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
+            {/* Desktop Table View */}
+            <div className="hidden md:block">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Category</TableHead>
+                    <TableHead>Quantity</TableHead>
+                    <TableHead>Location</TableHead>
+                    <TableHead>Last Audit</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.data.map((item) => (
+                    <TableRow key={item.id}>
+                      <TableCell className="font-medium">{item.name}</TableCell>
+                      <TableCell>
+                        <Badge variant={getCategoryBadgeVariant(item.category)}>
+                          {item.category.replace(/_/g, " ")}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>{item.quantity}</TableCell>
+                      <TableCell>{item.location}</TableCell>
+                      <TableCell>
+                        {item.lastAudit
+                          ? new Date(item.lastAudit).toLocaleDateString()
+                          : "Never"}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-2">
+                          <Link href={`/items/${item.id}`}>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="min-h-[44px] min-w-[44px]"
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                          </Link>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setDeleteId(item.id)}
+                            className="min-h-[44px] min-w-[44px]"
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+
+            {/* Mobile Card View */}
+            <div className="md:hidden space-y-3">
+              {data.data.map((item) => (
+                <Card key={item.id} className="overflow-hidden">
+                  <CardHeader className="pb-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-semibold text-base mb-2 truncate">
+                          {item.name}
+                        </h3>
+                        <Badge
+                          variant={getCategoryBadgeVariant(item.category)}
+                          className="text-xs"
+                        >
+                          {item.category.replace(/_/g, " ")}
+                        </Badge>
+                      </div>
+                      <div className="flex gap-2 flex-shrink-0">
                         <Link href={`/items/${item.id}`}>
-                          <Button variant="ghost" size="icon">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-10 w-10"
+                          >
                             <Pencil className="h-4 w-4" />
+                            <span className="sr-only">Edit</span>
                           </Button>
                         </Link>
                         <Button
                           variant="ghost"
                           size="icon"
                           onClick={() => setDeleteId(item.id)}
+                          className="h-10 w-10"
                         >
                           <Trash2 className="h-4 w-4 text-destructive" />
+                          <span className="sr-only">Delete</span>
                         </Button>
                       </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="pt-0 pb-4">
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div className="flex items-center gap-2">
+                        <Package className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                        <div>
+                          <p className="text-xs text-muted-foreground">
+                            Quantity
+                          </p>
+                          <p className="font-medium">{item.quantity}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <MapPin className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-xs text-muted-foreground">
+                            Location
+                          </p>
+                          <p className="font-medium truncate">
+                            {item.location}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="col-span-2">
+                        <p className="text-xs text-muted-foreground mb-1">
+                          Last Audit
+                        </p>
+                        <p className="font-medium">
+                          {item.lastAudit
+                            ? new Date(item.lastAudit).toLocaleDateString()
+                            : "Never"}
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
 
             {/* Pagination */}
             {data.pagination.totalPages > 1 && (
-              <div className="flex justify-center gap-2 mt-6">
+              <div className="flex flex-col sm:flex-row justify-center items-center gap-3 mt-6">
                 <Button
                   variant="outline"
                   disabled={page === 1}
                   onClick={() => setPage((p) => p - 1)}
+                  className="w-full sm:w-auto min-h-[44px]"
                 >
                   Previous
                 </Button>
@@ -199,6 +287,7 @@ export default function ItemsPage() {
                   variant="outline"
                   disabled={page === data.pagination.totalPages}
                   onClick={() => setPage((p) => p + 1)}
+                  className="w-full sm:w-auto min-h-[44px]"
                 >
                   Next
                 </Button>

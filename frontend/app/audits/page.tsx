@@ -23,14 +23,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Plus, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Plus, AlertCircle, CheckCircle2, Calendar } from "lucide-react";
 import { redirect } from "next/navigation";
 
 export default function AuditsPage() {
@@ -45,7 +39,12 @@ export default function AuditsPage() {
     redirect("/");
   }
 
-  const handleCreateAudit = async (auditData: any) => {
+  const handleCreateAudit = async (auditData: {
+    itemId: string;
+    expectedQuantity: number;
+    actualQuantity: number;
+    notes?: string;
+  }) => {
     await createMutation.mutateAsync(auditData);
     setDialogOpen(false);
   };
@@ -53,17 +52,17 @@ export default function AuditsPage() {
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
-      <main className="container mx-auto px-4 py-8">
-        <div className="flex justify-between items-center mb-8">
+      <main className="container mx-auto px-4 py-6 md:py-8">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 md:mb-8">
           <div>
-            <h1 className="text-3xl font-bold">Audit Logs</h1>
-            <p className="text-muted-foreground">
+            <h1 className="text-2xl md:text-3xl font-bold">Audit Logs</h1>
+            <p className="text-sm md:text-base text-muted-foreground mt-1">
               Track inventory discrepancies and audits
             </p>
           </div>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
-              <Button>
+              <Button className="w-full sm:w-auto min-h-[44px]">
                 <Plus className="h-4 w-4 mr-2" />
                 New Audit
               </Button>
@@ -84,7 +83,7 @@ export default function AuditsPage() {
         </div>
 
         {/* Audit Stats Cards */}
-        <div className="grid gap-4 md:grid-cols-3 mb-8">
+        <div className="grid gap-3 md:gap-4 grid-cols-1 sm:grid-cols-3 mb-6 md:mb-8">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">
@@ -133,14 +132,15 @@ export default function AuditsPage() {
           </Card>
         </div>
 
-        {/* Audits Table */}
+        {/* Audits Table/Cards */}
         {isLoading ? (
           <div className="text-center py-12">
             <p className="text-muted-foreground">Loading audits...</p>
           </div>
         ) : data?.data && data.data.length > 0 ? (
           <>
-            <div className="border rounded-lg">
+            {/* Desktop Table */}
+            <div className="hidden md:block border rounded-lg overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -212,13 +212,95 @@ export default function AuditsPage() {
               </Table>
             </div>
 
+            {/* Mobile Card View */}
+            <div className="md:hidden space-y-3">
+              {data.data.map((audit) => (
+                <Card key={audit.id}>
+                  <CardHeader className="pb-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <CardTitle className="text-base truncate mb-1">
+                          {audit.item?.name || "Unknown"}
+                        </CardTitle>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <Calendar className="h-3 w-3" />
+                          {new Date(audit.timestamp).toLocaleDateString()}{" "}
+                          {new Date(audit.timestamp).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </div>
+                      </div>
+                      {audit.discrepancy === 0 ? (
+                        <Badge
+                          variant="outline"
+                          className="bg-green-50 text-green-700 border-green-200 flex-shrink-0"
+                        >
+                          Match
+                        </Badge>
+                      ) : (
+                        <Badge
+                          variant="outline"
+                          className="bg-orange-50 text-orange-700 border-orange-200 flex-shrink-0"
+                        >
+                          Issue
+                        </Badge>
+                      )}
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="grid grid-cols-3 gap-3 text-sm">
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1">
+                          Expected
+                        </p>
+                        <p className="font-medium">{audit.expectedQuantity}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1">
+                          Actual
+                        </p>
+                        <p className="font-medium">{audit.actualQuantity}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1">
+                          Difference
+                        </p>
+                        <p
+                          className={`font-semibold ${
+                            audit.discrepancy === 0
+                              ? "text-green-600"
+                              : audit.discrepancy > 0
+                              ? "text-blue-600"
+                              : "text-orange-600"
+                          }`}
+                        >
+                          {audit.discrepancy > 0 ? "+" : ""}
+                          {audit.discrepancy}
+                        </p>
+                      </div>
+                    </div>
+                    {audit.notes && (
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1">
+                          Notes
+                        </p>
+                        <p className="text-sm">{audit.notes}</p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
             {/* Pagination */}
             {data.pagination.totalPages > 1 && (
-              <div className="flex justify-center gap-2 mt-6">
+              <div className="flex flex-col sm:flex-row justify-center items-center gap-3 mt-6">
                 <Button
                   variant="outline"
                   disabled={page === 1}
                   onClick={() => setPage((p) => p - 1)}
+                  className="w-full sm:w-auto min-h-[44px]"
                 >
                   Previous
                 </Button>
@@ -229,6 +311,7 @@ export default function AuditsPage() {
                   variant="outline"
                   disabled={page === data.pagination.totalPages}
                   onClick={() => setPage((p) => p + 1)}
+                  className="w-full sm:w-auto min-h-[44px]"
                 >
                   Next
                 </Button>
@@ -236,14 +319,14 @@ export default function AuditsPage() {
             )}
           </>
         ) : (
-          <div className="text-center py-12 border rounded-lg">
-            <AlertCircle className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-            <p className="text-muted-foreground mb-4">
+          <div className="text-center py-12 border rounded-lg px-4">
+            <AlertCircle className="h-12 w-12 md:h-16 md:w-16 mx-auto text-muted-foreground mb-4" />
+            <p className="text-sm md:text-base text-muted-foreground mb-4">
               No audits yet. Create your first audit to get started!
             </p>
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
               <DialogTrigger asChild>
-                <Button>
+                <Button className="w-full sm:w-auto min-h-[44px]">
                   <Plus className="h-4 w-4 mr-2" />
                   Create First Audit
                 </Button>
