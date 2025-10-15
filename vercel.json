@@ -69,13 +69,6 @@
       "source": "/api/:path*",
       "destination": "https://your-backend-url.railway.app/:path*"
     }
-  ],
-  "redirects": [
-    {
-      "source": "/docs",
-      "destination": "/api-docs",
-      "permanent": false
-    }
   ]
 }
 
