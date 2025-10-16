@@ -85,6 +85,7 @@ server.register(swagger, {
       { name: "mcp", description: "Model Context Protocol endpoints" },
       { name: "suppliers", description: "Supplier management operations" },
       { name: "waste", description: "Waste logging operations for F&B" },
+      { name: "ai", description: "AI-powered features (semantic search, categorization)" },
     ],
   },
 });
@@ -137,6 +138,7 @@ import apiKeysRoutes from "./routes/v1/apiKeys.routes";
 import mcpRoutes from "./routes/v1/mcp.routes";
 import suppliersRoutes from "./routes/v1/suppliers.routes";
 import wasteRoutes from "./routes/v1/waste.routes";
+import { semanticRoutes } from "./routes/v1/semantic.routes.js";
 
 server.register(eventsRoutes, { prefix: "/api/v1" });
 server.register(eventMembersRoutes, { prefix: "/api/v1" });
@@ -148,6 +150,7 @@ server.register(apiKeysRoutes, { prefix: "/api/v1" });
 server.register(mcpRoutes, { prefix: "/api/v1/mcp" });
 server.register(suppliersRoutes, { prefix: "/api/v1" });
 server.register(wasteRoutes, { prefix: "/api/v1" });
+server.register(semanticRoutes, { prefix: "/api/v1" });
 
 // Start server
 const start = async () => {
