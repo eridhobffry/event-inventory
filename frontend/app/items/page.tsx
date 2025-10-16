@@ -1,11 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useUser } from "@stackframe/stack";
 import { useItems, useDeleteItem } from "@/hooks/useItems";
 import { Navbar } from "@/components/Navbar";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -38,7 +37,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   Plus,
-  Search,
   Pencil,
   Trash2,
   MapPin,
@@ -50,6 +48,8 @@ import {
   X,
   Download,
   FileSpreadsheet,
+  Search as SearchIcon,
+  Sparkles,
 } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -61,6 +61,15 @@ import { ItemsListSkeleton } from "@/components/ItemsListSkeleton";
 import { exportItemsToCSV, exportItemsWithSummary } from "@/lib/utils/export";
 import { useEventContext } from "@/contexts/EventContext";
 import { toast } from "sonner";
+import { SemanticSearchBar } from "@/components/SemanticSearchBar";
+import { SemanticResultCard } from "@/components/SemanticResultCard";
+import { QueryParseDisplay, type QueryToken } from "@/components/QueryParseDisplay";
+import { MobileSearchOverlay } from "@/components/MobileSearchOverlay";
+import { SemanticResultsSkeleton } from "@/components/SemanticResultsSkeleton";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useRouter } from "next/navigation";
 
 const categoryOptions = [
   { value: "all", label: "All Categories" },
@@ -96,10 +105,45 @@ const stockStatusOptions = [
   { value: "expiring", label: "Expiring Soon" },
 ];
 
+const categoryLabelMap = categoryOptions.reduce<Record<string, string>>(
+  (acc, option) => {
+    acc[option.value] = option.label;
+    return acc;
+  },
+  {}
+);
+
+const statusQueryPhrases: Partial<Record<Item["status"], string>> = {
+  DAMAGED: "Show damaged items that need repair",
+  MAINTENANCE: "Which items are in maintenance right now?",
+  OUT_OF_STOCK: "Items that are out of stock and need reordering",
+};
+
+const keywordMatchers = [
+  { keyword: "available", type: "status" as const, label: "Status", value: "Available" },
+  { keyword: "in stock", type: "status" as const, label: "Status", value: "Available" },
+  { keyword: "out of stock", type: "status" as const, label: "Status", value: "Out of Stock" },
+  { keyword: "damaged", type: "status" as const, label: "Status", value: "Damaged" },
+  { keyword: "maintenance", type: "status" as const, label: "Status", value: "Maintenance" },
+  { keyword: "reserved", type: "status" as const, label: "Status", value: "Reserved" },
+  { keyword: "warehouse", type: "keyword" as const, label: "Keyword", value: "Warehouse" },
+  { keyword: "event", type: "keyword" as const, label: "Keyword", value: "Event Context" },
+];
+
+const searchFormSchema = z.object({
+  query: z
+    .string()
+    .max(200, "Search query is too long")
+    .optional()
+    .transform((value) => value ?? ""),
+});
+
+type SearchFormValues = z.infer<typeof searchFormSchema>;
+
 export default function ItemsPage() {
   const user = useUser({ or: "redirect" });
   const { currentEvent } = useEventContext();
-  const [search, setSearch] = useState("");
+  const router = useRouter();
   const [category, setCategory] = useState("all");
   const [status, setStatus] = useState("all");
   const [storageType, setStorageType] = useState("all");
@@ -111,13 +155,29 @@ export default function ItemsPage() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [isExporting, setIsExporting] = useState(false);
+  const [isSemanticMode, setIsSemanticMode] = useState(false);
+  const [activeSemanticMode, setActiveSemanticMode] = useState(false);
+  const [activeSearchQuery, setActiveSearchQuery] = useState("");
+  const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
 
+  const searchForm = useForm<SearchFormValues>({
+    resolver: zodResolver(searchFormSchema),
+    defaultValues: {
+      query: "",
+    },
+  });
+
+  const searchQuery = searchForm.watch("query") ?? "";
+
+  // Use semantic search when in AI mode, otherwise use regular search
+  // Use activeSemanticMode (not isSemanticMode) to prevent race condition
   const { data, isLoading } = useItems({
     page,
     limit: 20,
-    q: search || undefined,
+    q: activeSearchQuery || undefined,
     category: category !== "all" ? category : undefined,
     status: status !== "all" ? status : undefined,
+    semantic: activeSemanticMode && activeSearchQuery ? true : undefined,
   });
 
   const deleteMutation = useDeleteItem();
@@ -158,34 +218,210 @@ export default function ItemsPage() {
     return variants[cat] || "default";
   };
 
-  // Client-side filtering for Phase 2 features
-  const filteredItems = data?.data
-    ? data.data.filter((item) => {
-        // Perishable filter
-        if (perishableOnly && !item.isPerishable) return false;
+  const items = useMemo(() => data?.data ?? [], [data?.data]);
 
-        // Storage type filter
-        if (storageType !== "all" && item.storageType !== storageType)
-          return false;
+  const placeholderExamples = useMemo(() => {
+    if (!items.length) {
+      return [
+        "You don't have any items to search yet. Add inventory items to enable AI search.",
+      ];
+    }
 
-        // Supplier filter
-        if (supplierId !== "all" && item.supplierId !== supplierId)
-          return false;
+    const suggestions = new Set<string>();
+    const sanitize = (value: string) =>
+      value.replace(/["']/g, "").replace(/\s+/g, " ").trim();
 
-        // Stock status filters
-        if (stockStatus === "low" && !isBelowReorderPoint(item)) return false;
-        if (stockStatus === "out" && item.quantity !== 0) return false;
-        if (stockStatus === "expiring") {
-          const hasExpiringBatch = item.batches?.some(
-            (batch) =>
-              batch.expirationDate && isExpiringSoon(batch.expirationDate)
-          );
-          if (!hasExpiringBatch) return false;
+    const truncated = (value: string, limit = 45) =>
+      value.length > limit ? `${value.slice(0, limit - 1)}…` : value;
+
+    const firstItem = items.find((item) => !!item.name);
+    if (firstItem?.name) {
+      const name = truncated(sanitize(firstItem.name));
+      if (name) {
+        suggestions.add(`Try: 'Show availability for ${name}'`);
+      }
+    }
+
+    const categories = Array.from(
+      new Set(items.map((item) => item.category).filter(Boolean))
+    ).slice(0, 2);
+    categories.forEach((category) => {
+      const label = categoryLabelMap[category] || category.replace(/_/g, " ");
+      suggestions.add(
+        `Try: '${label.toLowerCase()} available for upcoming events'`
+      );
+    });
+
+    const locations = Array.from(
+      new Set(items.map((item) => item.location).filter(Boolean))
+    ).slice(0, 2);
+    locations.forEach((location) => {
+      const locationLabel = truncated(sanitize(location));
+      if (locationLabel) {
+        suggestions.add(`Try: 'Items stored in ${locationLabel}'`);
+      }
+    });
+
+    (["DAMAGED", "MAINTENANCE", "OUT_OF_STOCK"] as Item["status"][]).forEach(
+      (statusKey) => {
+        if (items.some((item) => item.status === statusKey)) {
+          const prompt = statusQueryPhrases[statusKey];
+          if (prompt) {
+            suggestions.add(`Try: '${prompt}'`);
+          }
         }
+      }
+    );
 
-        return true;
-      })
-    : [];
+    if (currentEvent?.name) {
+      const eventName = truncated(sanitize(currentEvent.name), 30);
+      if (eventName) {
+        suggestions.add(`Try: 'Inventory reserved for ${eventName}'`);
+      }
+    }
+
+    const result = Array.from(suggestions).slice(0, 4);
+    return result.length > 0
+      ? result
+      : ["Try: 'Search inventory by item name, category, or location'"];
+  }, [currentEvent?.name, items]);
+
+  const queryTokens = useMemo<QueryToken[]>(() => {
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+    if (!normalizedQuery || !isSemanticMode) return [];
+
+    const tokenMap = new Map<string, QueryToken>();
+    const addToken = (token: QueryToken) => {
+      const key = `${token.type}-${token.value.toLowerCase()}`;
+      if (!tokenMap.has(key)) {
+        tokenMap.set(key, token);
+      }
+    };
+
+    categoryOptions.forEach((option) => {
+      if (option.value === "all") return;
+      const label = option.label.toLowerCase();
+      if (normalizedQuery.includes(label)) {
+        addToken({
+          type: "category",
+          label: "Category",
+          value: option.label,
+        });
+      }
+    });
+
+    statusOptions.forEach((option) => {
+      if (option.value === "all") return;
+      const label = option.label.toLowerCase();
+      if (normalizedQuery.includes(label)) {
+        addToken({
+          type: "status",
+          label: "Status",
+          value: option.label,
+        });
+      }
+    });
+
+    const uniqueLocations = Array.from(
+      new Set(
+        items
+          .map((item) => item.location)
+          .filter((location): location is string => !!location),
+      ),
+    );
+
+    uniqueLocations.forEach((location) => {
+      const locationLabel = location.toLowerCase();
+      if (locationLabel && normalizedQuery.includes(locationLabel)) {
+        addToken({
+          type: "location",
+          label: "Location",
+          value: location,
+        });
+      }
+    });
+
+    keywordMatchers.forEach((matcher) => {
+      if (normalizedQuery.includes(matcher.keyword)) {
+        addToken({
+          type: matcher.type,
+          label: matcher.label,
+          value: matcher.value,
+        });
+      }
+    });
+
+    return Array.from(tokenMap.values());
+  }, [isSemanticMode, items, searchQuery]);
+
+  useEffect(() => {
+    if (!items.length && isSemanticMode) {
+      setIsSemanticMode(false);
+    }
+  }, [items.length, isSemanticMode]);
+
+  const handleSemanticModeChange = (nextMode: boolean) => {
+    if (nextMode && !items.length) {
+      toast.info("Add your first inventory item to enable AI search.");
+      return;
+    }
+    
+    // Update UI mode immediately
+    setIsSemanticMode(nextMode);
+    
+    // Update active mode and trigger search if there's a query
+    if (searchQuery.trim()) {
+      setActiveSemanticMode(nextMode);
+      setActiveSearchQuery(searchQuery);
+      setPage(1);
+    } else {
+      // Just update the mode without searching
+      setActiveSemanticMode(nextMode);
+    }
+  };
+
+  const handleSearchSubmit = searchForm.handleSubmit(() => {
+    setActiveSemanticMode(isSemanticMode);
+    setActiveSearchQuery(searchQuery);
+    setPage(1);
+  });
+
+  const updateSearchValue = useCallback(
+    (value: string) => {
+      searchForm.setValue("query", value, {
+        shouldDirty: true,
+        shouldTouch: true,
+        shouldValidate: false,
+      });
+      // Don't trigger search on every keystroke - only on explicit submit
+    },
+    [searchForm]
+  );
+
+  // Client-side filtering for Phase 2 features
+  const filteredItems = items.filter((item) => {
+    // Perishable filter
+    if (perishableOnly && !item.isPerishable) return false;
+
+    // Storage type filter
+    if (storageType !== "all" && item.storageType !== storageType) return false;
+
+    // Supplier filter
+    if (supplierId !== "all" && item.supplierId !== supplierId) return false;
+
+    // Stock status filters
+    if (stockStatus === "low" && !isBelowReorderPoint(item)) return false;
+    if (stockStatus === "out" && item.quantity !== 0) return false;
+    if (stockStatus === "expiring") {
+      const hasExpiringBatch = item.batches?.some(
+        (batch) =>
+          batch.expirationDate && isExpiringSoon(batch.expirationDate)
+      );
+      if (!hasExpiringBatch) return false;
+    }
+
+    return true;
+  });
 
   const hasActiveFilters =
     perishableOnly ||
@@ -320,20 +556,30 @@ export default function ItemsPage() {
 
         {/* Filters */}
         <div className="space-y-4 mb-6">
-          {/* Primary Filters */}
-          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search items..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-10 min-h-[44px]"
-                aria-label="Search inventory items"
-              />
-            </div>
+          {/* Primary Search */}
+          <div className="hidden sm:block">
+            <SemanticSearchBar
+              value={searchQuery}
+              onChange={updateSearchValue}
+              onSubmit={handleSearchSubmit}
+              isSemanticMode={isSemanticMode}
+              onSemanticModeChange={handleSemanticModeChange}
+              placeholderExamples={placeholderExamples}
+            />
+          </div>
+          <Button
+            variant="outline"
+            className="flex w-full items-center justify-center gap-2 sm:hidden"
+            onClick={() => setIsMobileSearchOpen(true)}
+          >
+            <SearchIcon className="h-4 w-4" />
+            Search Inventory
+          </Button>
+
+          {/* Filter Controls */}
+          <div className="flex flex-wrap items-center gap-3 sm:gap-4">
             <Select value={category} onValueChange={setCategory}>
-              <SelectTrigger className="w-full sm:w-[200px] min-h-[44px]">
+              <SelectTrigger className="w-full min-h-[44px] sm:w-[200px]">
                 <SelectValue placeholder="Category" />
               </SelectTrigger>
               <SelectContent>
@@ -345,7 +591,7 @@ export default function ItemsPage() {
               </SelectContent>
             </Select>
             <Select value={status} onValueChange={setStatus}>
-              <SelectTrigger className="w-full sm:w-[200px] min-h-[44px]">
+              <SelectTrigger className="w-full min-h-[44px] sm:w-[200px]">
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
               <SelectContent>
@@ -473,262 +719,324 @@ export default function ItemsPage() {
 
         {/* Items List/Table */}
         {isLoading ? (
-          <ItemsListSkeleton />
+          isSemanticMode ? <SemanticResultsSkeleton /> : <ItemsListSkeleton />
         ) : filteredItems.length > 0 ? (
           <>
+            {/* AI Results Header */}
+            {isSemanticMode && searchQuery && (
+              <div className="mb-4 rounded-lg border border-purple-200 bg-gradient-to-r from-purple-50 to-blue-50 p-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-r from-purple-500 to-blue-500">
+                    <Sparkles className="h-5 w-5 text-white" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-semibold text-purple-900">AI Search Results</h3>
+                      <Badge variant="secondary" className="bg-purple-100 text-purple-700 text-xs">
+                        Powered by AI
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-purple-700/80 mt-0.5">
+                      Found {filteredItems.length} {filteredItems.length === 1 ? 'item' : 'items'} matching your natural language query
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+            {isSemanticMode && searchQuery ? (
+              <QueryParseDisplay tokens={queryTokens} />
+            ) : null}
             {/* Desktop Table View */}
-            <div className="hidden lg:block overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name & Alerts</TableHead>
-                    <TableHead>Category</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Quantity</TableHead>
-                    <TableHead>Storage</TableHead>
-                    <TableHead>Supplier</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredItems.map((item) => {
-                    const alerts = getItemAlerts(item);
-                    return (
-                      <TableRow key={item.id}>
-                        <TableCell>
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium">{item.name}</span>
-                              {item.isPerishable && (
-                                <PerishableBadge isPerishable />
-                              )}
-                              {item.isAlcohol && <PerishableBadge isAlcohol />}
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              SKU: {item.sku}
-                            </div>
-                            {alerts.length > 0 && (
-                              <div className="flex flex-wrap gap-1">
-                                {alerts.map((alert, idx) => (
-                                  <Badge
-                                    key={idx}
-                                    variant={
-                                      alert.type === "error"
-                                        ? "destructive"
-                                        : "secondary"
-                                    }
-                                    className="text-xs"
-                                  >
-                                    <alert.icon className="h-3 w-3 mr-1" />
-                                    {alert.message}
-                                  </Badge>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge
-                            variant={getCategoryBadgeVariant(item.category)}
-                          >
-                            {item.category.replace(/_/g, " ")}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <StatusBadge status={item.status} />
-                        </TableCell>
-                        <TableCell>
-                          <div className="space-y-1">
-                            <div className="font-medium">
-                              {item.quantity} {item.unitOfMeasure?.toLowerCase() || "units"}
-                            </div>
-                            {item.reorderPoint && (
-                              <div className="text-xs text-muted-foreground">
-                                Reorder: {item.reorderPoint}
-                              </div>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {item.storageType ? (
-                            <StorageTypeBadge storageType={item.storageType} />
-                          ) : (
-                            <span className="text-sm text-muted-foreground">
-                              -
-                            </span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {item.supplier ? (
-                            <span className="text-sm">
-                              {item.supplier.name}
-                            </span>
-                          ) : (
-                            <span className="text-sm text-muted-foreground">
-                              -
-                            </span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-2">
-                            <Link href={`/items/${item.id}`}>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="min-h-[44px] min-w-[44px]"
-                              >
-                                <Pencil className="h-4 w-4" />
-                              </Button>
-                            </Link>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => setDeleteId(item.id)}
-                              className="min-h-[44px] min-w-[44px]"
-                            >
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
-                          </div>
-                        </TableCell>
+            <div className="hidden lg:block">
+              {isSemanticMode ? (
+                <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                  {filteredItems.map((item, index) => (
+                    <SemanticResultCard
+                      key={item.id}
+                      item={item}
+                      similarityScore={Math.max(0.5, 0.95 - index * 0.05)}
+                      reasoning={
+                        item.description
+                          ? `Matches item description: ${item.description.slice(0, 120)}`
+                          : undefined
+                      }
+                      onSelect={(selected) => router.push(`/items/${selected.id}`)}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Name & Alerts</TableHead>
+                        <TableHead>Category</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Quantity</TableHead>
+                        <TableHead>Storage</TableHead>
+                        <TableHead>Supplier</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredItems.map((item) => {
+                        const alerts = getItemAlerts(item);
+                        return (
+                          <TableRow key={item.id}>
+                            <TableCell>
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium">{item.name}</span>
+                                  {item.isPerishable && (
+                                    <PerishableBadge isPerishable />
+                                  )}
+                                  {item.isAlcohol && <PerishableBadge isAlcohol />}
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  SKU: {item.sku}
+                                </div>
+                                {alerts.length > 0 && (
+                                  <div className="flex flex-wrap gap-1">
+                                    {alerts.map((alert, idx) => (
+                                      <Badge
+                                        key={idx}
+                                        variant={
+                                          alert.type === "error"
+                                            ? "destructive"
+                                            : "secondary"
+                                        }
+                                        className="text-xs"
+                                      >
+                                        <alert.icon className="h-3 w-3 mr-1" />
+                                        {alert.message}
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <Badge
+                                variant={getCategoryBadgeVariant(item.category)}
+                              >
+                                {item.category.replace(/_/g, " ")}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <StatusBadge status={item.status} />
+                            </TableCell>
+                            <TableCell>
+                              <div className="space-y-1">
+                                <div className="font-medium">
+                                  {item.quantity} {item.unitOfMeasure?.toLowerCase() || "units"}
+                                </div>
+                                {item.reorderPoint && (
+                                  <div className="text-xs text-muted-foreground">
+                                    Reorder: {item.reorderPoint}
+                                  </div>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              {item.storageType ? (
+                                <StorageTypeBadge storageType={item.storageType} />
+                              ) : (
+                                <span className="text-sm text-muted-foreground">
+                                  -
+                                </span>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              {item.supplier ? (
+                                <span className="text-sm">
+                                  {item.supplier.name}
+                                </span>
+                              ) : (
+                                <span className="text-sm text-muted-foreground">
+                                  -
+                                </span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex justify-end gap-2">
+                                <Link href={`/items/${item.id}`}>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="min-h-[44px] min-w-[44px]"
+                                  >
+                                    <Pencil className="h-4 w-4" />
+                                  </Button>
+                                </Link>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => setDeleteId(item.id)}
+                                  className="min-h-[44px] min-w-[44px]"
+                                >
+                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
             </div>
 
             {/* Mobile Card View */}
             <div className="lg:hidden space-y-3">
-              {filteredItems.map((item) => {
-                const alerts = getItemAlerts(item);
-                return (
-                  <Card key={item.id} className="overflow-hidden">
-                    <CardHeader className="pb-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <h3 className="font-semibold text-base truncate">
-                              {item.name}
-                            </h3>
-                            {item.isPerishable && (
-                              <PerishableBadge isPerishable />
-                            )}
-                            {item.isAlcohol && <PerishableBadge isAlcohol />}
-                          </div>
-                          <p className="text-xs text-muted-foreground mb-2">
-                            {item.sku}
-                          </p>
-                          <div className="flex gap-2 flex-wrap">
-                            <Badge
-                              variant={getCategoryBadgeVariant(item.category)}
-                              className="text-xs"
-                            >
-                              {item.category.replace(/_/g, " ")}
-                            </Badge>
-                            <StatusBadge
-                              status={item.status}
-                              className="text-xs"
-                            />
-                            {item.storageType && (
-                              <StorageTypeBadge
-                                storageType={item.storageType}
-                              />
-                            )}
-                          </div>
-                          {alerts.length > 0 && (
-                            <div className="flex flex-wrap gap-1 mt-2">
-                              {alerts.map((alert, idx) => (
+              {isSemanticMode
+                ? filteredItems.map((item, index) => (
+                    <SemanticResultCard
+                      key={item.id}
+                      item={item}
+                      similarityScore={Math.max(0.5, 0.95 - index * 0.07)}
+                      reasoning={
+                        item.description
+                          ? `Matches item description: ${item.description.slice(0, 120)}`
+                          : undefined
+                      }
+                      onSelect={(selected) =>
+                        router.push(`/items/${selected.id}`)
+                      }
+                    />
+                  ))
+                : filteredItems.map((item) => {
+                    const alerts = getItemAlerts(item);
+                    return (
+                      <Card key={item.id} className="overflow-hidden">
+                        <CardHeader className="pb-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                <h3 className="font-semibold text-base truncate">
+                                  {item.name}
+                                </h3>
+                                {item.isPerishable && (
+                                  <PerishableBadge isPerishable />
+                                )}
+                                {item.isAlcohol && <PerishableBadge isAlcohol />}
+                              </div>
+                              <p className="text-xs text-muted-foreground mb-2">
+                                {item.sku}
+                              </p>
+                              <div className="flex gap-2 flex-wrap">
                                 <Badge
-                                  key={idx}
-                                  variant={
-                                    alert.type === "error"
-                                      ? "destructive"
-                                      : "secondary"
-                                  }
+                                  variant={getCategoryBadgeVariant(item.category)}
                                   className="text-xs"
                                 >
-                                  <alert.icon className="h-3 w-3 mr-1" />
-                                  {alert.message}
+                                  {item.category.replace(/_/g, " ")}
                                 </Badge>
-                              ))}
+                                <StatusBadge
+                                  status={item.status}
+                                  className="text-xs"
+                                />
+                                {item.storageType && (
+                                  <StorageTypeBadge
+                                    storageType={item.storageType}
+                                  />
+                                )}
+                              </div>
+                              {alerts.length > 0 && (
+                                <div className="flex flex-wrap gap-1 mt-2">
+                                  {alerts.map((alert, idx) => (
+                                    <Badge
+                                      key={idx}
+                                      variant={
+                                        alert.type === "error"
+                                          ? "destructive"
+                                          : "secondary"
+                                      }
+                                      className="text-xs"
+                                    >
+                                      <alert.icon className="h-3 w-3 mr-1" />
+                                      {alert.message}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              )}
                             </div>
-                          )}
-                        </div>
-                        <div className="flex gap-2 flex-shrink-0">
-                          <Link href={`/items/${item.id}`}>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-10 w-10"
-                            >
-                              <Pencil className="h-4 w-4" />
-                              <span className="sr-only">Edit</span>
-                            </Button>
-                          </Link>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => setDeleteId(item.id)}
-                            className="h-10 w-10"
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                            <span className="sr-only">Delete</span>
-                          </Button>
-                        </div>
-                      </div>
-                    </CardHeader>
-                    <CardContent className="pt-0 pb-4">
-                      <div className="grid grid-cols-2 gap-3 text-sm">
-                        <div className="flex items-center gap-2">
-                          <Package className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                          <div>
-                            <p className="text-xs text-muted-foreground">
-                              Quantity
-                            </p>
-                            <p className="font-medium">
-                              {item.quantity} {item.unitOfMeasure?.toLowerCase() || "units"}
-                            </p>
-                            {item.reorderPoint && (
-                              <p className="text-xs text-muted-foreground">
-                                Reorder: {item.reorderPoint}
-                              </p>
+                            <div className="flex gap-2 flex-shrink-0">
+                              <Link href={`/items/${item.id}`}>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-10 w-10"
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                  <span className="sr-only">Edit</span>
+                                </Button>
+                              </Link>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => setDeleteId(item.id)}
+                                className="h-10 w-10"
+                              >
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                                <span className="sr-only">Delete</span>
+                              </Button>
+                            </div>
+                          </div>
+                        </CardHeader>
+                        <CardContent className="pt-0 pb-4">
+                          <div className="grid grid-cols-2 gap-3 text-sm">
+                            <div className="flex items-center gap-2">
+                              <Package className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                              <div>
+                                <p className="text-xs text-muted-foreground">
+                                  Quantity
+                                </p>
+                                <p className="font-medium">
+                                  {item.quantity} {item.unitOfMeasure?.toLowerCase() || "units"}
+                                </p>
+                                {item.reorderPoint && (
+                                  <p className="text-xs text-muted-foreground">
+                                    Reorder: {item.reorderPoint}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <MapPin className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                              <div className="min-w-0">
+                                <p className="text-xs text-muted-foreground">
+                                  Location
+                                </p>
+                                <p className="font-medium truncate">
+                                  {item.location}
+                                </p>
+                              </div>
+                            </div>
+                            {item.supplier && (
+                              <div className="col-span-2">
+                                <p className="text-xs text-muted-foreground mb-1">
+                                  Supplier
+                                </p>
+                                <p className="font-medium">
+                                  {item.supplier.name}
+                                </p>
+                              </div>
+                            )}
+                            {item.unitPrice && (
+                              <div className="col-span-2">
+                                <p className="text-xs text-muted-foreground mb-1">
+                                  Unit Price
+                                </p>
+                                <p className="font-medium">
+                                  {formatCurrency(Number(item.unitPrice))}
+                                </p>
+                              </div>
                             )}
                           </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <MapPin className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                          <div className="min-w-0">
-                            <p className="text-xs text-muted-foreground">
-                              Location
-                            </p>
-                            <p className="font-medium truncate">
-                              {item.location}
-                            </p>
-                          </div>
-                        </div>
-                        {item.supplier && (
-                          <div className="col-span-2">
-                            <p className="text-xs text-muted-foreground mb-1">
-                              Supplier
-                            </p>
-                            <p className="font-medium">{item.supplier.name}</p>
-                          </div>
-                        )}
-                        {item.unitPrice && (
-                          <div className="col-span-2">
-                            <p className="text-xs text-muted-foreground mb-1">
-                              Unit Price
-                            </p>
-                            <p className="font-medium">
-                              {formatCurrency(Number(item.unitPrice))}
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                );
-              })}
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
             </div>
 
             {/* Pagination */}
@@ -770,6 +1078,18 @@ export default function ItemsPage() {
           </div>
         )}
       </main>
+
+      <MobileSearchOverlay
+        open={isMobileSearchOpen}
+        onOpenChange={setIsMobileSearchOpen}
+        searchValue={searchQuery}
+        onSearchChange={updateSearchValue}
+        isSemanticMode={isSemanticMode}
+        onSemanticModeChange={handleSemanticModeChange}
+        placeholderExamples={placeholderExamples}
+        onSubmit={handleSearchSubmit}
+        isLoading={isLoading}
+      />
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>

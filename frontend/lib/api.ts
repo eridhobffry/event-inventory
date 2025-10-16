@@ -114,6 +114,12 @@ export interface WasteSummary {
   }[];
 }
 
+export interface AutoCategorizeResponse {
+  category: Category;
+  confidence: number;
+  reasoning: string;
+}
+
 export interface Item {
   id: string;
   name: string;
@@ -295,10 +301,26 @@ class ApiClient {
     });
 
     if (!response.ok) {
-      const error = await response
+      const errorBody = await response
         .json()
         .catch(() => ({ message: "Request failed" }));
-      throw new Error(error.message || `HTTP ${response.status}`);
+      const error = new Error(
+        errorBody.message || `HTTP ${response.status}`
+      ) as Error & {
+        status?: number;
+        data?: unknown;
+        retryAfter?: number | string;
+      };
+      error.status = response.status;
+      error.data = errorBody;
+      const retryAfterHeader = response.headers.get("retry-after");
+      if (retryAfterHeader) {
+        const retryNumber = Number(retryAfterHeader);
+        error.retryAfter = Number.isNaN(retryNumber)
+          ? retryAfterHeader
+          : retryNumber;
+      }
+      throw error;
     }
 
     return response.json();
@@ -323,6 +345,21 @@ class ApiClient {
     
     const query = new URLSearchParams(filteredParams).toString();
     return this.request<PaginatedResponse<Item>>(`/api/v1/items?${query}`);
+  }
+
+  async semanticSearch(params: {
+    query: string;
+    limit?: number;
+    threshold?: number;
+    eventId?: string;
+  }): Promise<{ results: Item[]; query: string; count: number }> {
+    return this.request<{ results: Item[]; query: string; count: number }>(
+      `/api/v1/items/semantic-search`,
+      {
+        method: "POST",
+        body: JSON.stringify(params),
+      }
+    );
   }
 
   async getItem(id: string): Promise<Item> {
@@ -356,6 +393,16 @@ class ApiClient {
     return this.request(`/api/v1/items/${id}`, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` },
+    });
+  }
+
+  async autoCategorizeItem(data: {
+    name: string;
+    description?: string;
+  }): Promise<AutoCategorizeResponse> {
+    return this.request<AutoCategorizeResponse>(`/api/v1/items/auto-categorize`, {
+      method: "POST",
+      body: JSON.stringify(data),
     });
   }
 

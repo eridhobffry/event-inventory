@@ -34,6 +34,7 @@ import type {
   ItemStatus,
   StorageType,
 } from "@/lib/api";
+import { AutoCategoryField } from "@/components/AutoCategoryField";
 
 const categoryOptions: { value: Category; label: string }[] = [
   { value: "FURNITURE", label: "Furniture" },
@@ -240,6 +241,8 @@ export function ItemForm({
   });
 
   const category = form.watch("category");
+  const nameValue = form.watch("name");
+  const descriptionValue = form.watch("description");
   const isPerishable = form.watch("isPerishable");
   const isAlcohol = form.watch("isAlcohol");
 
@@ -338,27 +341,14 @@ export function ItemForm({
           control={form.control}
           name="category"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>Category</FormLabel>
-              <Select onValueChange={field.onChange} value={field.value}>
-                <FormControl>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a category" />
-                  </SelectTrigger>
-                </FormControl>
-                <SelectContent>
-                  {categoryOptions.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <FormDescription>
-                Choose the category that best fits this item
-              </FormDescription>
-              <FormMessage />
-            </FormItem>
+            <AutoCategoryField
+              field={field}
+              form={form}
+              options={categoryOptions}
+              nameValue={nameValue}
+              descriptionValue={descriptionValue}
+              isSubmitting={isSubmitting}
+            />
           )}
         />
 

@@ -13,14 +13,40 @@ export function useItems(params?: {
   status?: string;
   location?: string;
   q?: string;
+  semantic?: boolean;
 }) {
   const { currentEventId } = useEventContext();
 
   return useQuery({
-    queryKey: ["items", currentEventId, params],
-    queryFn: () =>
-      api.getItems({ ...params, eventId: currentEventId || undefined }),
+    queryKey: ["items", currentEventId, params?.semantic ? "semantic" : "keyword", params],
+    queryFn: async () => {
+      // Use semantic search if enabled and query exists
+      if (params?.semantic && params?.q) {
+        const semanticResults = await api.semanticSearch({
+          query: params.q,
+          limit: params.limit || 20,
+          threshold: 0.3, // Lower threshold for better recall (30% similarity)
+          eventId: currentEventId || undefined,
+        });
+        
+        // Transform semantic results to match paginated response format
+        return {
+          data: semanticResults.results,
+          pagination: {
+            page: params.page || 1,
+            limit: params.limit || 20,
+            total: semanticResults.count,
+            totalPages: 1, // Semantic search doesn't support pagination yet
+          },
+        };
+      }
+      
+      // Use regular keyword search
+      return api.getItems({ ...params, eventId: currentEventId || undefined });
+    },
     enabled: !!currentEventId,
+    // Keep previous data while fetching to prevent UI flicker
+    placeholderData: (previousData) => previousData,
   });
 }
 
