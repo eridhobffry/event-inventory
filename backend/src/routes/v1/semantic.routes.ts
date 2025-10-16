@@ -140,7 +140,7 @@ export async function semanticRoutes(fastify: FastifyInstance) {
           count: Array.isArray(results) ? results.length : 0,
         });
       } catch (error) {
-        fastify.log.error('Semantic search error:', error);
+        fastify.log.error({ err: error }, 'Semantic search error');
         return reply.code(500).send({
           error: 'Semantic search failed',
           message: error instanceof Error ? error.message : 'Unknown error',
@@ -195,7 +195,7 @@ export async function semanticRoutes(fastify: FastifyInstance) {
           message: 'Embedding generated and stored',
         });
       } catch (error) {
-        fastify.log.error('Generate embedding error:', error);
+        fastify.log.error({ err: error }, 'Generate embedding error');
         return reply.code(500).send({
           error: 'Failed to generate embedding',
           message: error instanceof Error ? error.message : 'Unknown error',
@@ -275,7 +275,7 @@ export async function semanticRoutes(fastify: FastifyInstance) {
           message: `Generated embeddings for ${items.length} items`,
         });
       } catch (error) {
-        fastify.log.error('Batch generate embeddings error:', error);
+        fastify.log.error({ err: error }, 'Batch generate embeddings error');
         return reply.code(500).send({
           error: 'Failed to generate batch embeddings',
           message: error instanceof Error ? error.message : 'Unknown error',
@@ -308,7 +308,7 @@ export async function semanticRoutes(fastify: FastifyInstance) {
         const result = await aiService.categorizeItem(name, description);
         return reply.send(result);
       } catch (error) {
-        fastify.log.error('Auto-categorize error:', error);
+        fastify.log.error({ err: error }, 'Auto-categorize error');
         return reply.code(500).send({
           error: 'Failed to categorize item',
           message: error instanceof Error ? error.message : 'Unknown error',
@@ -340,7 +340,7 @@ export async function semanticRoutes(fastify: FastifyInstance) {
         const parsed = await aiService.parseSearchQuery(query);
         return reply.send(parsed);
       } catch (error) {
-        fastify.log.error('Parse query error:', error);
+        fastify.log.error({ err: error }, 'Parse query error');
         return reply.code(500).send({
           error: 'Failed to parse query',
           message: error instanceof Error ? error.message : 'Unknown error',
