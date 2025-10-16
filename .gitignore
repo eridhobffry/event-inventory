@@ -35,5 +35,15 @@ prisma/migrations/
 *.tsbuildinfo
 .turbo
 
+# Test files (keep final-test.sh)
+backend/test-*.js
+backend/test-*.ts
+backend/*-test.sh
+!backend/final-test.sh
+
+# Temporary cleanup files
+cleanup.sh
+commit-organized.sh
+CLEANUP_PLAN.md
 
 .vercel
