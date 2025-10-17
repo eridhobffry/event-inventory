@@ -142,107 +142,114 @@ const itemsRoutes: FastifyPluginAsync = async (server) => {
       },
     },
     async (request, reply) => {
-      const query = querySchema.parse(request.query);
-      const page = parseInt(query.page);
-      const limit = Math.min(parseInt(query.limit), 100); // Max 100 items per page
+      try {
+        const query = querySchema.parse(request.query);
+        const page = parseInt(query.page);
+        const limit = Math.min(parseInt(query.limit), 100); // Max 100 items per page
 
-      // Get eventId from query or header
-      const eventId =
-        query.eventId || (request.headers["x-event-id"] as string);
+        // Get eventId from query or header
+        const eventId =
+          query.eventId || (request.headers["x-event-id"] as string);
 
-      if (!eventId) {
-        return reply.status(400).send({
-          error: "Bad Request",
-          message:
-            "Event ID is required (provide via eventId query parameter or x-event-id header)",
+        if (!eventId) {
+          return reply.status(400).send({
+            error: "Bad Request",
+            message:
+              "Event ID is required (provide via eventId query parameter or x-event-id header)",
+          });
+        }
+
+        // Build where clause
+        const where: any = { eventId };
+        if (query.category) where.category = query.category;
+        if (query.status) where.status = query.status;
+        if (query.location)
+          where.location = { contains: query.location, mode: "insensitive" };
+        if (query.supplierId) where.supplierId = query.supplierId;
+        if (typeof query.perishable === "string") {
+          if (query.perishable === "true") where.isPerishable = true;
+          if (query.perishable === "false") where.isPerishable = false;
+        }
+        if (typeof query.alcohol === "string") {
+          if (query.alcohol === "true") where.isAlcohol = true;
+          if (query.alcohol === "false") where.isAlcohol = false;
+        }
+        if (query.q) {
+          // Search in both name and SKU
+          where.OR = [
+            { name: { contains: query.q, mode: "insensitive" } },
+            { sku: { contains: query.q, mode: "insensitive" } },
+          ];
+        }
+        if (query.expiringSoon) {
+          const days = parseInt(query.expiringSoon);
+          if (!isNaN(days) && days > 0) {
+            const threshold = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+            where.batches = {
+              some: {
+                isOpen: true,
+                expirationDate: { lte: threshold },
+              },
+            };
+          }
+        }
+
+        // Get total count
+        const total = await prisma.item.count({ where });
+
+        // Get items
+        const items = await prisma.item.findMany({
+          where,
+          skip: (page - 1) * limit,
+          take: limit,
+          orderBy: { createdAt: "desc" },
+          include: {
+            supplier: {
+              select: {
+                id: true,
+                name: true,
+                contactName: true,
+                contactEmail: true,
+              },
+            },
+            batches: {
+              where: {
+                isOpen: true,
+              },
+              orderBy: {
+                receivedAt: "asc",
+              },
+              select: {
+                id: true,
+                lotNumber: true,
+                quantity: true,
+                initialQuantity: true,
+                expirationDate: true,
+                receivedAt: true,
+                manufacturedAt: true,
+                isOpen: true,
+              },
+              take: 10,
+            },
+          },
+        });
+
+        return {
+          data: items,
+          pagination: {
+            page,
+            limit,
+            total,
+            totalPages: Math.ceil(total / limit),
+          },
+        };
+      } catch (error) {
+        request.log.error(error);
+        return reply.status(500).send({
+          error: "Internal Server Error",
+          message: error instanceof Error ? error.message : "An unexpected error occurred",
         });
       }
-
-      // Build where clause
-      const where: any = { eventId };
-      if (query.category) where.category = query.category;
-      if (query.status) where.status = query.status;
-      if (query.location)
-        where.location = { contains: query.location, mode: "insensitive" };
-      if (query.supplierId) where.supplierId = query.supplierId;
-      if (typeof query.perishable === "string") {
-        if (query.perishable === "true") where.isPerishable = true;
-        if (query.perishable === "false") where.isPerishable = false;
-      }
-      if (typeof query.alcohol === "string") {
-        if (query.alcohol === "true") where.isAlcohol = true;
-        if (query.alcohol === "false") where.isAlcohol = false;
-      }
-      if (query.q) {
-        // Search in both name and SKU
-        where.OR = [
-          { name: { contains: query.q, mode: "insensitive" } },
-          { sku: { contains: query.q, mode: "insensitive" } },
-        ];
-      }
-      if (query.expiringSoon) {
-        const days = parseInt(query.expiringSoon);
-        if (!isNaN(days) && days > 0) {
-          const threshold = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
-          where.batches = {
-            some: {
-              isOpen: true,
-              expirationDate: { lte: threshold },
-            },
-          };
-        }
-      }
-
-      // Get total count
-      const total = await prisma.item.count({ where });
-
-      // Get items
-      const items = await prisma.item.findMany({
-        where,
-        skip: (page - 1) * limit,
-        take: limit,
-        orderBy: { createdAt: "desc" },
-        include: {
-          supplier: {
-            select: {
-              id: true,
-              name: true,
-              contactName: true,
-              contactEmail: true,
-            },
-          },
-          batches: {
-            where: {
-              isOpen: true,
-            },
-            orderBy: [
-              { expirationDate: "asc" },
-              { receivedAt: "asc" },
-            ],
-            select: {
-              id: true,
-              lotNumber: true,
-              quantity: true,
-              initialQuantity: true,
-              expirationDate: true,
-              receivedAt: true,
-              manufacturedAt: true,
-              isOpen: true,
-            },
-            take: 10,
-          },
-        },
-      });
-
-      return {
-        data: items,
-        pagination: {
-          page,
-          limit,
-          total,
-          totalPages: Math.ceil(total / limit),
-        },
-      };
     }
   );
 
@@ -276,44 +283,51 @@ const itemsRoutes: FastifyPluginAsync = async (server) => {
       },
     },
     async (request, reply) => {
-      const { id } = request.params as { id: string };
+      try {
+        const { id } = request.params as { id: string };
 
-      const item = await prisma.item.findUnique({
-        where: { id },
-        include: {
-          supplier: {
-            select: {
-              id: true,
-              name: true,
-              contactName: true,
-              contactEmail: true,
-              contactPhone: true,
+        const item = await prisma.item.findUnique({
+          where: { id },
+          include: {
+            supplier: {
+              select: {
+                id: true,
+                name: true,
+                contactName: true,
+                contactEmail: true,
+                contactPhone: true,
+              },
+            },
+            batches: {
+              where: {
+                isOpen: true,
+              },
+              orderBy: {
+                receivedAt: "asc",
+              },
+            },
+            auditLogs: {
+              orderBy: { timestamp: "desc" },
+              take: 10,
             },
           },
-          batches: {
-            where: {
-              isOpen: true,
-            },
-            orderBy: [
-              { expirationDate: "asc" },
-              { receivedAt: "asc" },
-            ],
-          },
-          auditLogs: {
-            orderBy: { timestamp: "desc" },
-            take: 10,
-          },
-        },
-      });
+        });
 
-      if (!item) {
-        return reply.status(404).send({
-          error: "Not Found",
-          message: "Item not found",
+        if (!item) {
+          return reply.status(404).send({
+            error: "Not Found",
+            message: "Item not found",
+          });
+        }
+
+        return item;
+      } catch (error) {
+        request.log.error(error);
+        return reply.status(500).send({
+          error: "Internal Server Error",
+          message: error instanceof Error ? error.message : "An unexpected error occurred",
         });
       }
-
-      return item;
     }
   );
 
