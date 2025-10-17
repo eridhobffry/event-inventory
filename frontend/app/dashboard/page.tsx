@@ -89,6 +89,11 @@ export default function DashboardPage() {
       <div className="min-h-screen bg-background">
         <Navbar />
         <main className="container mx-auto px-4 py-6 md:py-8">
+          {/* Pending Invitations - Always show even without events */}
+          <div className="mb-6">
+            <PendingInvitationsCard />
+          </div>
+
           <Card className="max-w-2xl mx-auto">
             <CardContent className="flex flex-col items-center justify-center py-12 md:py-16 px-4">
               <PackageIcon className="h-12 w-12 md:h-16 md:w-16 text-muted-foreground mb-4" />
@@ -154,12 +159,13 @@ export default function DashboardPage() {
             </Link>
           </div>
 
+          {/* Pending Invitations */}
+          <div className="mb-6">
+            <PendingInvitationsCard />
+          </div>
+
           {/* Event Details */}
           <div className="flex flex-col sm:flex-row gap-2 text-sm text-muted-foreground">
-            {/* Pending Invitations */}
-            <div className="mb-8">
-              <PendingInvitationsCard />
-            </div>
             {currentEvent.location && (
               <div className="flex items-center">
                 <MapPin className="h-4 w-4 mr-1 flex-shrink-0" />
