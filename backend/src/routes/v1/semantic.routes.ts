@@ -9,7 +9,7 @@ const prisma = new PrismaClient();
 const semanticSearchSchema = z.object({
   query: z.string().min(1).max(500),
   limit: z.number().int().min(1).max(50).default(10),
-  threshold: z.number().min(0).max(1).default(0.7), // Minimum similarity score
+  threshold: z.number().min(0).max(1).default(0.3), // Minimum similarity score (lowered for better recall)
   eventId: z.string().uuid().optional(),
 });
 
@@ -42,7 +42,7 @@ export async function semanticRoutes(fastify: FastifyInstance) {
           properties: {
             query: { type: 'string', minLength: 1, maxLength: 500 },
             limit: { type: 'number', minimum: 1, maximum: 50, default: 10 },
-            threshold: { type: 'number', minimum: 0, maximum: 1, default: 0.7 },
+            threshold: { type: 'number', minimum: 0, maximum: 1, default: 0.3 },
             eventId: { type: 'string', format: 'uuid' },
           },
         },
@@ -54,18 +54,14 @@ export async function semanticRoutes(fastify: FastifyInstance) {
                 type: 'array',
                 items: {
                   type: 'object',
-                  properties: {
-                    id: { type: 'string' },
-                    name: { type: 'string' },
-                    description: { type: 'string' },
-                    category: { type: 'string' },
-                    quantity: { type: 'number' },
-                    location: { type: 'string' },
-                    similarity: { type: 'number' },
-                  },
+                  additionalProperties: true, // Allow all fields from Prisma
                 },
               },
               query: { type: 'string' },
+              parsedQuery: {
+                type: 'object',
+                additionalProperties: true,
+              },
               count: { type: 'number' },
             },
           },
@@ -76,68 +72,134 @@ export async function semanticRoutes(fastify: FastifyInstance) {
       const { query, limit, threshold, eventId } = semanticSearchSchema.parse(request.body);
 
       try {
+        // Parse the query to extract filters
+        const parsedQuery = await aiService.parseSearchQuery(query);
+        const searchTerm = parsedQuery.searchTerm || query;
+
         // Generate embedding for search query
-        const queryEmbedding = await aiService.generateEmbedding(query);
+        const queryEmbedding = await aiService.generateEmbedding(searchTerm);
 
         // Build SQL query with vector similarity search
         const vectorString = `[${queryEmbedding.join(',')}]`;
-        
-        let sql = `
-          SELECT 
-            id,
-            name,
-            description,
-            category,
-            quantity,
-            "unitOfMeasure",
-            location,
-            status,
-            sku,
-            "unitPrice",
-            bin,
-            "lastAudit",
-            "eventId",
-            "isPerishable",
-            "storageType",
-            "parLevel",
-            "reorderPoint",
-            "supplierId",
-            "isAlcohol",
-            abv,
-            allergens,
-            "createdAt",
-            "updatedAt",
-            1 - (vector_desc <=> $1::vector) as similarity
-          FROM items
-          WHERE vector_desc IS NOT NULL
-        `;
 
-        const params: any[] = [vectorString];
-        let paramIndex = 2;
+        // Build WHERE conditions
+        let whereConditions = [`"vectorDesc" IS NOT NULL`];
+        let havingConditions = [`(1 - ("vectorDesc" <=> '${vectorString}'::vector)) >= ${threshold}`];
 
-        // Filter by event if provided
         if (eventId) {
-          sql += ` AND "eventId" = $${paramIndex}`;
-          params.push(eventId);
-          paramIndex++;
+          whereConditions.push(`"eventId" = '${eventId}'`);
         }
 
-        // Filter by similarity threshold
-        sql += ` AND (1 - (vector_desc <=> $1::vector)) >= $${paramIndex}`;
-        params.push(threshold);
-        paramIndex++;
+        // Apply parsed filters
+        if (parsedQuery.category) {
+          whereConditions.push(`"category" = '${parsedQuery.category}'`);
+        }
+        if (parsedQuery.status) {
+          whereConditions.push(`"status" = '${parsedQuery.status}'`);
+        }
+        if (parsedQuery.location) {
+          whereConditions.push(`"location" ILIKE '%${parsedQuery.location}%'`);
+        }
+        if (parsedQuery.isAlcohol !== undefined) {
+          whereConditions.push(`"isAlcohol" = ${parsedQuery.isAlcohol}`);
+        }
+        if (parsedQuery.isPerishable !== undefined) {
+          whereConditions.push(`"isPerishable" = ${parsedQuery.isPerishable}`);
+        }
 
-        // Order by similarity and limit
-        sql += ` ORDER BY vector_desc <=> $1::vector LIMIT $${paramIndex}`;
-        params.push(limit);
+        // First, get IDs and similarity scores
+        const similarityQuery = `
+          SELECT
+            id,
+            (1 - ("vectorDesc" <=> '${vectorString}'::vector)) as similarity
+          FROM items
+          WHERE ${whereConditions.join(' AND ')}
+          AND ${havingConditions.join(' AND ')}
+          ORDER BY "vectorDesc" <=> '${vectorString}'::vector
+          LIMIT ${limit}
+        `;
 
-        // Execute query
-        const results = await prisma.$queryRawUnsafe(sql, ...params);
+        const similarityResults = await prisma.$queryRawUnsafe<Array<{ id: string; similarity: number }>>(similarityQuery);
+
+        if (similarityResults.length === 0) {
+          return reply.send({
+            results: [],
+            query,
+            parsedQuery,
+            count: 0,
+          });
+        }
+
+        // Fetch full item details using Prisma
+        const itemIds = similarityResults.map(r => r.id);
+        const items = await prisma.item.findMany({
+          where: { id: { in: itemIds } },
+          select: {
+            id: true,
+            name: true,
+            description: true,
+            category: true,
+            quantity: true,
+            unitOfMeasure: true,
+            location: true,
+            status: true,
+            sku: true,
+            unitPrice: true,
+            bin: true,
+            lastAudit: true,
+            eventId: true,
+            isPerishable: true,
+            storageType: true,
+            parLevel: true,
+            reorderPoint: true,
+            supplierId: true,
+            isAlcohol: true,
+            abv: true,
+            allergens: true,
+            createdAt: true,
+            updatedAt: true,
+            bottlesPerCrate: true,
+            bottleVolumeMl: true,
+          },
+        });
+
+        // Merge similarity scores with item data and sort by similarity
+        const results = items.map(item => {
+          const simResult = similarityResults.find(r => r.id === item.id);
+
+          // Compute pricing fields if needed
+          const computed: any = {};
+          if (item.unitPrice && item.bottlesPerCrate) {
+            const unitPrice = Number(item.unitPrice);
+            const bottlesPerCrate = item.bottlesPerCrate;
+
+            if (item.unitOfMeasure === "CRATE") {
+              computed.pricePerBottle = Number((unitPrice / bottlesPerCrate).toFixed(2));
+              computed.pricePerCrate = unitPrice;
+            } else if (item.unitOfMeasure === "BOTTLE") {
+              computed.pricePerCrate = Number((unitPrice * bottlesPerCrate).toFixed(2));
+              computed.pricePerBottle = unitPrice;
+            }
+          }
+
+          if (item.bottlesPerCrate && item.unitOfMeasure === "CRATE") {
+            computed.totalBottles = item.quantity * item.bottlesPerCrate;
+          }
+
+          return {
+            ...item,
+            unitPrice: item.unitPrice ? Number(item.unitPrice) : null,
+            abv: item.abv ? Number(item.abv) : null,
+            similarity: simResult?.similarity || 0,
+            _computed: Object.keys(computed).length > 0 ? computed : undefined,
+          };
+        }).sort((a, b) => b.similarity - a.similarity);
 
         return reply.send({
           results,
           query,
-          count: Array.isArray(results) ? results.length : 0,
+          parsedQuery,
+          count: results.length,
         });
       } catch (error) {
         fastify.log.error({ err: error }, 'Semantic search error');
@@ -172,7 +234,14 @@ export async function semanticRoutes(fastify: FastifyInstance) {
         // Fetch item
         const item = await prisma.item.findUnique({
           where: { id: itemId },
-          select: { id: true, name: true, description: true },
+          select: { 
+            id: true, 
+            name: true, 
+            description: true,
+            category: true,
+            isAlcohol: true,
+            isPerishable: true,
+          },
         });
 
         if (!item) {
@@ -185,7 +254,7 @@ export async function semanticRoutes(fastify: FastifyInstance) {
         // Store embedding in database
         await prisma.$executeRaw`
           UPDATE items 
-          SET vector_desc = ${`[${embedding.join(',')}]`}::vector
+          SET "vectorDesc" = ${`[${embedding.join(',')}]`}::vector
           WHERE id = ${itemId}
         `;
 
@@ -227,9 +296,9 @@ export async function semanticRoutes(fastify: FastifyInstance) {
         // Fetch items without embeddings using raw SQL
         // (Prisma doesn't support filtering on Unsupported type fields)
         let sql = `
-          SELECT id, name, description
+          SELECT id, name, description, category, "isAlcohol", "isPerishable"
           FROM items
-          WHERE vector_desc IS NULL
+          WHERE "vectorDesc" IS NULL
         `;
         
         const params: string[] = [];
@@ -241,7 +310,14 @@ export async function semanticRoutes(fastify: FastifyInstance) {
         
         sql += ` LIMIT ${limit}`;
         
-        const items = await prisma.$queryRawUnsafe<Array<{ id: string; name: string; description: string | null }>>(
+        const items = await prisma.$queryRawUnsafe<Array<{ 
+          id: string; 
+          name: string; 
+          description: string | null;
+          category: string;
+          isAlcohol: boolean;
+          isPerishable: boolean;
+        }>>(
           sql,
           ...params
         );
@@ -262,7 +338,7 @@ export async function semanticRoutes(fastify: FastifyInstance) {
           const vectorString = `[${embeddings[index].join(',')}]`;
           return prisma.$executeRaw`
             UPDATE items 
-            SET vector_desc = ${vectorString}::vector
+            SET "vectorDesc" = ${vectorString}::vector
             WHERE id = ${item.id}
           `;
         });

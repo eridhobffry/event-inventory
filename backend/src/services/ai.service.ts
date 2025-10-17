@@ -42,7 +42,7 @@ export class AIService {
   /**
    * Generate embedding for an item by combining name and description
    */
-  async generateItemEmbedding(item: Pick<Item, 'name' | 'description'>): Promise<number[]> {
+  async generateItemEmbedding(item: Pick<Item, 'name' | 'description' | 'category' | 'isAlcohol' | 'isPerishable'>): Promise<number[]> {
     const text = this.createItemText(item);
     return this.generateEmbedding(text);
   }
@@ -51,7 +51,7 @@ export class AIService {
    * Generate embeddings for multiple items in batch
    * More efficient than individual calls
    */
-  async generateBatchEmbeddings(items: Pick<Item, 'name' | 'description'>[]): Promise<number[][]> {
+  async generateBatchEmbeddings(items: Pick<Item, 'name' | 'description' | 'category' | 'isAlcohol' | 'isPerishable'>[]): Promise<number[][]> {
     try {
       const client = getOpenAIClient();
       const texts = items.map(item => this.createItemText(item));
@@ -71,12 +71,32 @@ export class AIService {
 
   /**
    * Create searchable text from item fields
+   * Includes semantic metadata to improve search relevance
    */
-  private createItemText(item: Pick<Item, 'name' | 'description'>): string {
+  private createItemText(item: Pick<Item, 'name' | 'description' | 'category' | 'isAlcohol' | 'isPerishable'>): string {
     const parts = [item.name];
+    
     if (item.description) {
       parts.push(item.description);
     }
+    
+    // Add category as semantic context
+    parts.push(`Category: ${item.category.toLowerCase().replace('_', ' ')}`);
+    
+    // Add alcohol status for better filtering
+    if (item.isAlcohol) {
+      parts.push('alcoholic beverage contains alcohol');
+    } else {
+      parts.push('non-alcoholic beverage no alcohol alcohol-free');
+    }
+    
+    // Add perishable status
+    if (item.isPerishable) {
+      parts.push('perishable requires refrigeration');
+    } else {
+      parts.push('non-perishable shelf-stable');
+    }
+    
     return parts.join(' ');
   }
 
@@ -164,6 +184,8 @@ Respond in JSON format with: category, confidence (0-1), reasoning`;
     category?: string;
     status?: string;
     location?: string;
+    isAlcohol?: boolean;
+    isPerishable?: boolean;
     filters?: Record<string, any>;
   }> {
     try {
@@ -173,9 +195,32 @@ Respond in JSON format with: category, confidence (0-1), reasoning`;
         messages: [{
           role: 'system',
           content: `You are a search query parser. Convert natural language queries into structured search parameters.
-Available categories: FURNITURE, AV_EQUIPMENT, DECOR, SUPPLIES, FOOD_BEVERAGE, OTHER
-Available statuses: AVAILABLE, RESERVED, OUT_OF_STOCK, MAINTENANCE, DAMAGED, RETIRED
-Return JSON with: searchTerm, category, status, location, filters`
+
+Available fields:
+- searchTerm: the main search keywords (string)
+- category: FURNITURE, AV_EQUIPMENT, DECOR, SUPPLIES, FOOD_BEVERAGE, OTHER
+- status: AVAILABLE, RESERVED, OUT_OF_STOCK, MAINTENANCE, DAMAGED, RETIRED
+- location: storage location (string)
+- isAlcohol: true/false for alcoholic beverages
+- isPerishable: true/false for perishable items
+
+Important rules:
+- ONLY include fields that are explicitly mentioned or clearly implied in the query
+- For "non-alcoholic", "no alcohol", "alcohol-free" → set isAlcohol: false
+- For "alcoholic", "with alcohol", "beer", "wine", "spirits" → set isAlcohol: true
+- For "perishable" or "needs refrigeration" → set isPerishable: true
+- For "non-perishable" or "shelf-stable" → set isPerishable: false
+- Extract the semantic search term (what the user is looking for), NOT negations or filters
+- DO NOT include category, status, location unless explicitly mentioned
+- DO NOT make assumptions - only extract what's clearly stated
+
+Examples:
+- "list all non alcohol" → {"searchTerm": "beverages", "isAlcohol": false}
+- "find beer" → {"searchTerm": "beer", "isAlcohol": true}
+- "available chairs" → {"searchTerm": "chairs", "status": "AVAILABLE", "category": "FURNITURE"}
+- "water" → {"searchTerm": "water"}
+
+Return JSON with only the relevant extracted parameters.`
         }, {
           role: 'user',
           content: query
@@ -184,7 +229,15 @@ Return JSON with: searchTerm, category, status, location, filters`
         temperature: 0.2,
       });
 
-      return JSON.parse(response.choices[0].message.content || '{}');
+      const parsed = JSON.parse(response.choices[0].message.content || '{}');
+
+      // Ensure booleans are actual booleans, not strings
+      if (parsed.isAlcohol === 'true') parsed.isAlcohol = true;
+      if (parsed.isAlcohol === 'false') parsed.isAlcohol = false;
+      if (parsed.isPerishable === 'true') parsed.isPerishable = true;
+      if (parsed.isPerishable === 'false') parsed.isPerishable = false;
+
+      return parsed;
     } catch (error) {
       console.error('Error parsing query:', error);
       return { searchTerm: query };
