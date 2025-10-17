@@ -5,12 +5,21 @@ import {
   verifyNeonAuth,
   AuthenticatedRequest,
 } from "../../middleware/neonAuth";
-import { Category, Role, UnitOfMeasure, ItemStatus, StorageType } from "@prisma/client";
+import {
+  Category,
+  Role,
+  UnitOfMeasure,
+  ItemStatus,
+  StorageType,
+} from "@prisma/client";
 import {
   EventAccessRequest,
   verifyEventAccess,
 } from "../../middleware/eventAccess";
-import { verifyCanEditItems, hasPermission } from "../../middleware/permissions";
+import {
+  verifyCanEditItems,
+  hasPermission,
+} from "../../middleware/permissions";
 
 // Validation schemas
 const baseItemSchema = z.object({
@@ -19,54 +28,64 @@ const baseItemSchema = z.object({
   category: z.nativeEnum(Category),
   quantity: z.number().int().min(0),
   unitOfMeasure: z.nativeEnum(UnitOfMeasure).default("EACH"),
-  unitPrice: z.number().positive().optional(),
+  unitPrice: z.preprocess((val) => {
+    // Convert 0, empty string, null to undefined for optional handling
+    if (val === 0 || val === "" || val === null) return undefined;
+    return val;
+  }, z.number().positive("Unit price must be greater than 0").optional()),
   status: z.nativeEnum(ItemStatus).default("AVAILABLE"),
   location: z.string().min(1).max(255),
   bin: z.string().max(255).optional(),
   description: z.string().optional(),
   eventId: z.string().uuid(),
-  
+
   // === PHASE 2: Food & Beverage Fields ===
   // Perishable Management
   isPerishable: z.boolean().default(false),
   storageType: z.nativeEnum(StorageType).optional(),
-  
+
   // Procurement
   parLevel: z.number().int().positive().optional(),
   reorderPoint: z.number().int().positive().optional(),
   supplierId: z.string().uuid().optional(),
-  
+
   // Compliance
   isAlcohol: z.boolean().default(false),
   abv: z.number().min(0).max(100).optional(), // Alcohol by volume percentage
   allergens: z.array(z.string()).default([]),
+
+  // Beverage Packaging (for conversions)
+  bottlesPerCrate: z.number().int().positive().optional(),
+  bottleVolumeMl: z.number().int().positive().optional(),
 });
 
-const createItemSchema = baseItemSchema.refine(
-  (data) => {
-    // If isAlcohol is true, abv should be provided
-    if (data.isAlcohol && data.abv === undefined) {
-      return false;
+const createItemSchema = baseItemSchema
+  .refine(
+    (data) => {
+      // If isAlcohol is true, abv should be provided
+      if (data.isAlcohol && data.abv === undefined) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: "ABV is required when isAlcohol is true",
+      path: ["abv"],
     }
-    return true;
-  },
-  {
-    message: "ABV is required when isAlcohol is true",
-    path: ["abv"],
-  }
-).refine(
-  (data) => {
-    // If reorderPoint is set, it should be less than parLevel
-    if (data.reorderPoint !== undefined && data.parLevel !== undefined) {
-      return data.reorderPoint < data.parLevel;
+  )
+  .refine(
+    (data) => {
+      // If reorderPoint is set, it should be less than parLevel
+      if (data.reorderPoint !== undefined && data.parLevel !== undefined) {
+        return data.reorderPoint < data.parLevel;
+      }
+      return true;
+    },
+    {
+      message: "Reorder point must be less than par level",
+      path: ["reorderPoint"],
     }
-    return true;
-  },
-  {
-    message: "Reorder point must be less than par level",
-    path: ["reorderPoint"],
-  }
-);
+  );
 
 const updateItemSchema = baseItemSchema.partial().omit({ eventId: true });
 
@@ -78,7 +97,7 @@ const querySchema = z.object({
   location: z.string().optional(),
   q: z.string().optional(), // search query (name or SKU)
   eventId: z.string().uuid().optional(),
-  
+
   // === PHASE 2: F&B Filters ===
   perishable: z.string().optional(), // "true" or "false"
   expiringSoon: z.string().optional(), // number of days threshold
@@ -111,7 +130,10 @@ const itemsRoutes: FastifyPluginAsync = async (server) => {
             // Phase 2: F&B filters
             status: { type: "string", enum: Object.values(ItemStatus) },
             perishable: { type: "string", description: "true|false" },
-            expiringSoon: { type: "string", description: "Days threshold for expiration (integer)" },
+            expiringSoon: {
+              type: "string",
+              description: "Days threshold for expiration (integer)",
+            },
             supplierId: { type: "string", format: "uuid" },
             alcohol: { type: "string", description: "true|false" },
           },
@@ -234,8 +256,43 @@ const itemsRoutes: FastifyPluginAsync = async (server) => {
           },
         });
 
+        // Add computed pricing fields
+        const itemsWithComputed = items.map((item) => {
+          const computed: any = {};
+
+          // Calculate conversions if we have the data
+          if (item.unitPrice && item.bottlesPerCrate) {
+            const unitPrice = Number(item.unitPrice);
+            const bottlesPerCrate = item.bottlesPerCrate;
+
+            if (item.unitOfMeasure === "CRATE") {
+              // Unit price is per crate, calculate per bottle
+              computed.pricePerBottle = Number(
+                (unitPrice / bottlesPerCrate).toFixed(2)
+              );
+              computed.pricePerCrate = unitPrice;
+            } else if (item.unitOfMeasure === "BOTTLE") {
+              // Unit price is per bottle, calculate per crate
+              computed.pricePerCrate = Number(
+                (unitPrice * bottlesPerCrate).toFixed(2)
+              );
+              computed.pricePerBottle = unitPrice;
+            }
+          }
+
+          // Calculate total bottles in inventory
+          if (item.bottlesPerCrate && item.unitOfMeasure === "CRATE") {
+            computed.totalBottles = item.quantity * item.bottlesPerCrate;
+          }
+
+          return {
+            ...item,
+            _computed: Object.keys(computed).length > 0 ? computed : undefined,
+          };
+        });
+
         return {
-          data: items,
+          data: itemsWithComputed,
           pagination: {
             page,
             limit,
@@ -247,7 +304,10 @@ const itemsRoutes: FastifyPluginAsync = async (server) => {
         request.log.error(error);
         return reply.status(500).send({
           error: "Internal Server Error",
-          message: error instanceof Error ? error.message : "An unexpected error occurred",
+          message:
+            error instanceof Error
+              ? error.message
+              : "An unexpected error occurred",
         });
       }
     }
@@ -320,12 +380,42 @@ const itemsRoutes: FastifyPluginAsync = async (server) => {
           });
         }
 
-        return item;
+        // Add computed pricing fields
+        const computed: any = {};
+
+        if (item.unitPrice && item.bottlesPerCrate) {
+          const unitPrice = Number(item.unitPrice);
+          const bottlesPerCrate = item.bottlesPerCrate;
+
+          if (item.unitOfMeasure === "CRATE") {
+            computed.pricePerBottle = Number(
+              (unitPrice / bottlesPerCrate).toFixed(2)
+            );
+            computed.pricePerCrate = unitPrice;
+          } else if (item.unitOfMeasure === "BOTTLE") {
+            computed.pricePerCrate = Number(
+              (unitPrice * bottlesPerCrate).toFixed(2)
+            );
+            computed.pricePerBottle = unitPrice;
+          }
+        }
+
+        if (item.bottlesPerCrate && item.unitOfMeasure === "CRATE") {
+          computed.totalBottles = item.quantity * item.bottlesPerCrate;
+        }
+
+        return {
+          ...item,
+          _computed: Object.keys(computed).length > 0 ? computed : undefined,
+        };
       } catch (error) {
         request.log.error(error);
         return reply.status(500).send({
           error: "Internal Server Error",
-          message: error instanceof Error ? error.message : "An unexpected error occurred",
+          message:
+            error instanceof Error
+              ? error.message
+              : "An unexpected error occurred",
         });
       }
     }

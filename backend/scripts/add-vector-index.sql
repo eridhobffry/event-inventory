@@ -7,9 +7,9 @@ CREATE EXTENSION IF NOT EXISTS vector;
 -- Create HNSW index for cosine similarity search
 -- m = 16: number of connections per layer (higher = better recall, more memory)
 -- ef_construction = 64: size of dynamic candidate list (higher = better quality, slower build)
--- Note: Prisma uses snake_case for database columns, so vectorDesc becomes vector_desc
+-- Note: Column name is vectorDesc (camelCase) in the database
 CREATE INDEX IF NOT EXISTS items_vector_desc_idx 
-ON items USING hnsw (vector_desc vector_cosine_ops)
+ON items USING hnsw ("vectorDesc" vector_cosine_ops)
 WITH (m = 16, ef_construction = 64);
 
 -- Set search quality parameter (can be adjusted per query)
