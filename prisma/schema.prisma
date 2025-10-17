@@ -120,6 +120,12 @@ model Item {
     abv            Decimal?                     @db.Decimal(5, 2) // Alcohol by volume (0-100%)
     allergens      String[] // Array of allergen codes (e.g., ["DAIRY", "NUTS"])
     
+    // Beverage Crate Management
+    bottlesPerCrate Int? // Number of bottles in one crate (e.g., 20, 24)
+    bottleVolumeMl  Int? // Volume of each bottle in mL (e.g., 330, 500)
+    pricePerCrate   Decimal? @db.Decimal(10, 2) // Cost per crate for procurement
+    pricePerBottle  Decimal? @db.Decimal(10, 2) // Calculated: pricePerCrate / bottlesPerCrate
+    
     createdAt      DateTime                     @default(now())
     updatedAt      DateTime                     @updatedAt
 
@@ -165,6 +171,8 @@ enum UnitOfMeasure {
     LITER     // Volume (L)
     MILLILITER // Volume (mL)
     SERVING   // Portion/serving
+    CRATE     // Beverage crates (standard: 20-24 bottles)
+    BOTTLE    // Individual bottles
 }
 
 enum ItemStatus {
