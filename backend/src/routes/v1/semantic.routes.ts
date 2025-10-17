@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { PrismaClient } from '@prisma/client';
+import type { Category } from '@prisma/client';
 import { aiService } from '../../services/ai.service.js';
 
 const prisma = new PrismaClient();
@@ -310,7 +311,7 @@ export async function semanticRoutes(fastify: FastifyInstance) {
         
         sql += ` LIMIT ${limit}`;
         
-        const items = await prisma.$queryRawUnsafe<Array<{ 
+        const rawItems = await prisma.$queryRawUnsafe<Array<{ 
           id: string; 
           name: string; 
           description: string | null;
@@ -322,13 +323,18 @@ export async function semanticRoutes(fastify: FastifyInstance) {
           ...params
         );
 
-        if (items.length === 0) {
+        if (rawItems.length === 0) {
           return reply.send({
             success: true,
             processed: 0,
             message: 'No items need embeddings',
           });
         }
+
+        const items = rawItems.map((item) => ({
+          ...item,
+          category: item.category as Category,
+        }));
 
         // Generate embeddings in batch
         const embeddings = await aiService.generateBatchEmbeddings(items);
