@@ -27,11 +27,42 @@ export interface PaginatedResponse<T> {
 }
 
 // Enums
-export type Category = "FURNITURE" | "AV_EQUIPMENT" | "DECOR" | "SUPPLIES" | "FOOD_BEVERAGE" | "OTHER";
-export type UnitOfMeasure = "EACH" | "PAIR" | "SET" | "METER" | "BOX" | "PACK" | "HOUR" | "KILOGRAM" | "GRAM" | "LITER" | "MILLILITER" | "SERVING";
-export type ItemStatus = "AVAILABLE" | "RESERVED" | "OUT_OF_STOCK" | "MAINTENANCE" | "DAMAGED" | "RETIRED";
+export type Category =
+  | "FURNITURE"
+  | "AV_EQUIPMENT"
+  | "DECOR"
+  | "SUPPLIES"
+  | "FOOD_BEVERAGE"
+  | "OTHER";
+export type UnitOfMeasure =
+  | "EACH"
+  | "PAIR"
+  | "SET"
+  | "METER"
+  | "BOX"
+  | "PACK"
+  | "HOUR"
+  | "KILOGRAM"
+  | "GRAM"
+  | "LITER"
+  | "MILLILITER"
+  | "SERVING"
+  | "CRATE"
+  | "BOTTLE";
+export type ItemStatus =
+  | "AVAILABLE"
+  | "RESERVED"
+  | "OUT_OF_STOCK"
+  | "MAINTENANCE"
+  | "DAMAGED"
+  | "RETIRED";
 export type StorageType = "DRY" | "CHILL" | "FREEZE";
-export type WasteReason = "SPOILAGE" | "OVERPRODUCTION" | "DAMAGE" | "CONTAMINATION" | "OTHER";
+export type WasteReason =
+  | "SPOILAGE"
+  | "OVERPRODUCTION"
+  | "DAMAGE"
+  | "CONTAMINATION"
+  | "OTHER";
 
 // === PHASE 2: Supplier Interface ===
 export interface Supplier {
@@ -149,6 +180,10 @@ export interface Item {
   isAlcohol: boolean;
   abv?: number;
   allergens: string[];
+
+  // Beverage Packaging (for conversions)
+  bottlesPerCrate?: number;
+  bottleVolumeMl?: number;
 
   createdAt: string;
   updatedAt: string;
@@ -336,13 +371,16 @@ class ApiClient {
     eventId?: string;
   }): Promise<PaginatedResponse<Item>> {
     // Filter out undefined/null values to prevent sending "undefined" as a string
-    const filteredParams = Object.entries(params || {}).reduce((acc, [key, value]) => {
-      if (value !== undefined && value !== null) {
-        acc[key] = String(value);
-      }
-      return acc;
-    }, {} as Record<string, string>);
-    
+    const filteredParams = Object.entries(params || {}).reduce(
+      (acc, [key, value]) => {
+        if (value !== undefined && value !== null) {
+          acc[key] = String(value);
+        }
+        return acc;
+      },
+      {} as Record<string, string>
+    );
+
     const query = new URLSearchParams(filteredParams).toString();
     return this.request<PaginatedResponse<Item>>(`/api/v1/items?${query}`);
   }
@@ -400,10 +438,13 @@ class ApiClient {
     name: string;
     description?: string;
   }): Promise<AutoCategorizeResponse> {
-    return this.request<AutoCategorizeResponse>(`/api/v1/items/auto-categorize`, {
-      method: "POST",
-      body: JSON.stringify(data),
-    });
+    return this.request<AutoCategorizeResponse>(
+      `/api/v1/items/auto-categorize`,
+      {
+        method: "POST",
+        body: JSON.stringify(data),
+      }
+    );
   }
 
   // Audit API
@@ -415,13 +456,16 @@ class ApiClient {
     contextId?: string;
   }): Promise<PaginatedResponse<AuditLog>> {
     // Filter out undefined/null values to prevent sending "undefined" as a string
-    const filteredParams = Object.entries(params || {}).reduce((acc, [key, value]) => {
-      if (value !== undefined && value !== null) {
-        acc[key] = String(value);
-      }
-      return acc;
-    }, {} as Record<string, string>);
-    
+    const filteredParams = Object.entries(params || {}).reduce(
+      (acc, [key, value]) => {
+        if (value !== undefined && value !== null) {
+          acc[key] = String(value);
+        }
+        return acc;
+      },
+      {} as Record<string, string>
+    );
+
     const query = new URLSearchParams(filteredParams).toString();
     return this.request<PaginatedResponse<AuditLog>>(`/api/v1/audits?${query}`);
   }
@@ -496,15 +540,20 @@ class ApiClient {
     isActive?: boolean;
     q?: string;
   }): Promise<PaginatedResponse<Supplier>> {
-    const filteredParams = Object.entries(params || {}).reduce((acc, [key, value]) => {
-      if (value !== undefined && value !== null) {
-        acc[key] = String(value);
-      }
-      return acc;
-    }, {} as Record<string, string>);
+    const filteredParams = Object.entries(params || {}).reduce(
+      (acc, [key, value]) => {
+        if (value !== undefined && value !== null) {
+          acc[key] = String(value);
+        }
+        return acc;
+      },
+      {} as Record<string, string>
+    );
 
     const query = new URLSearchParams(filteredParams).toString();
-    return this.request<PaginatedResponse<Supplier>>(`/api/v1/suppliers?${query}`);
+    return this.request<PaginatedResponse<Supplier>>(
+      `/api/v1/suppliers?${query}`
+    );
   }
 
   async getSupplier(id: string): Promise<Supplier> {
@@ -534,7 +583,10 @@ class ApiClient {
     });
   }
 
-  async deleteSupplier(id: string, token: string): Promise<{ message: string }> {
+  async deleteSupplier(
+    id: string,
+    token: string
+  ): Promise<{ message: string }> {
     return this.request(`/api/v1/suppliers/${id}`, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` },
@@ -625,12 +677,15 @@ class ApiClient {
     startDate?: string;
     endDate?: string;
   }): Promise<PaginatedResponse<WasteLog>> {
-    const filteredParams = Object.entries(params || {}).reduce((acc, [key, value]) => {
-      if (value !== undefined && value !== null) {
-        acc[key] = String(value);
-      }
-      return acc;
-    }, {} as Record<string, string>);
+    const filteredParams = Object.entries(params || {}).reduce(
+      (acc, [key, value]) => {
+        if (value !== undefined && value !== null) {
+          acc[key] = String(value);
+        }
+        return acc;
+      },
+      {} as Record<string, string>
+    );
 
     const query = new URLSearchParams(filteredParams).toString();
     return this.request<PaginatedResponse<WasteLog>>(`/api/v1/waste?${query}`);
@@ -641,12 +696,15 @@ class ApiClient {
     startDate?: string;
     endDate?: string;
   }): Promise<WasteSummary> {
-    const filteredParams = Object.entries(params || {}).reduce((acc, [key, value]) => {
-      if (value !== undefined && value !== null) {
-        acc[key] = String(value);
-      }
-      return acc;
-    }, {} as Record<string, string>);
+    const filteredParams = Object.entries(params || {}).reduce(
+      (acc, [key, value]) => {
+        if (value !== undefined && value !== null) {
+          acc[key] = String(value);
+        }
+        return acc;
+      },
+      {} as Record<string, string>
+    );
 
     const query = new URLSearchParams(filteredParams).toString();
     return this.request<WasteSummary>(`/api/v1/waste/summary?${query}`);

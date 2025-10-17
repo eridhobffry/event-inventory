@@ -35,70 +35,82 @@ export const itemStatusEnum = z.enum([
 
 export const storageTypeEnum = z.enum(["DRY", "CHILL", "FREEZE"]);
 
-export const itemSchema = z.object({
-  name: z.string().min(1, "Name is required").max(255),
-  sku: z.string().min(1, "SKU is required").max(255),
-  category: categoryEnum,
-  quantity: z.number().int().min(0, "Quantity cannot be negative"),
-  unitOfMeasure: unitOfMeasureEnum.default("EACH"),
-  unitPrice: z.number().positive().optional(),
-  status: itemStatusEnum.default("AVAILABLE"),
-  location: z.string().min(1, "Location is required").max(255),
-  bin: z.string().max(255).optional(),
-  description: z.string().optional(),
-  eventId: z.string().uuid("Invalid event ID"),
+export const itemSchema = z
+  .object({
+    name: z.string().min(1, "Name is required").max(255),
+    sku: z.string().min(1, "SKU is required").max(255),
+    category: categoryEnum,
+    quantity: z.number().int().min(0, "Quantity cannot be negative"),
+    unitOfMeasure: unitOfMeasureEnum.default("EACH"),
+    unitPrice: z.preprocess((val) => {
+      // Convert 0, empty string, null to undefined for optional handling
+      if (val === 0 || val === "" || val === null) return undefined;
+      return val;
+    }, z.number().positive("Unit price must be greater than 0").optional()),
+    status: itemStatusEnum.default("AVAILABLE"),
+    location: z.string().min(1, "Location is required").max(255),
+    bin: z.string().max(255).optional(),
+    description: z.string().optional(),
+    eventId: z.string().uuid("Invalid event ID"),
 
-  // === PHASE 2: Food & Beverage Fields ===
-  // Perishable Management
-  isPerishable: z.boolean().default(false),
-  storageType: storageTypeEnum.optional(),
+    // === PHASE 2: Food & Beverage Fields ===
+    // Perishable Management
+    isPerishable: z.boolean().default(false),
+    storageType: storageTypeEnum.optional(),
 
-  // Procurement
-  parLevel: z.number().int().positive().optional(),
-  reorderPoint: z.number().int().positive().optional(),
-  supplierId: z.string().uuid("Invalid supplier ID").optional(),
+    // Procurement
+    parLevel: z.number().int().positive().optional(),
+    reorderPoint: z.number().int().positive().optional(),
+    supplierId: z.string().uuid("Invalid supplier ID").optional(),
 
-  // Compliance
-  isAlcohol: z.boolean().default(false),
-  abv: z.number().min(0).max(100).optional(),
-  allergens: z.array(z.string()).default([]),
-}).refine(
-  (data) => {
-    // If isAlcohol is true, abv should be provided
-    if (data.isAlcohol && data.abv === undefined) {
-      return false;
+    // Compliance
+    isAlcohol: z.boolean().default(false),
+    abv: z.number().min(0).max(100).optional(),
+    allergens: z.array(z.string()).default([]),
+
+    // Beverage Packaging (for conversions)
+    bottlesPerCrate: z.number().int().positive().optional(),
+    bottleVolumeMl: z.number().int().positive().optional(),
+  })
+  .refine(
+    (data) => {
+      // If isAlcohol is true, abv should be provided
+      if (data.isAlcohol && data.abv === undefined) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: "ABV is required when item is alcoholic",
+      path: ["abv"],
     }
-    return true;
-  },
-  {
-    message: "ABV is required when item is alcoholic",
-    path: ["abv"],
-  }
-).refine(
-  (data) => {
-    // If reorderPoint is set, it should be less than parLevel
-    if (data.reorderPoint !== undefined && data.parLevel !== undefined) {
-      return data.reorderPoint < data.parLevel;
+  )
+  .refine(
+    (data) => {
+      // If reorderPoint is set, it should be less than parLevel
+      if (data.reorderPoint !== undefined && data.parLevel !== undefined) {
+        return data.reorderPoint < data.parLevel;
+      }
+      return true;
+    },
+    {
+      message: "Reorder point must be less than par level",
+      path: ["reorderPoint"],
     }
-    return true;
-  },
-  {
-    message: "Reorder point must be less than par level",
-    path: ["reorderPoint"],
-  }
-).refine(
-  (data) => {
-    // If isPerishable is true, storageType should be provided
-    if (data.isPerishable && !data.storageType) {
-      return false;
+  )
+  .refine(
+    (data) => {
+      // If isPerishable is true, storageType should be provided
+      if (data.isPerishable && !data.storageType) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: "Storage type is required for perishable items",
+      path: ["storageType"],
     }
-    return true;
-  },
-  {
-    message: "Storage type is required for perishable items",
-    path: ["storageType"],
-  }
-);
+  );
 
 export const createItemSchema = itemSchema;
 

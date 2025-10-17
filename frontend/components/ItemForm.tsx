@@ -58,6 +58,8 @@ const unitOfMeasureOptions: { value: UnitOfMeasure; label: string }[] = [
   { value: "LITER", label: "Liter" },
   { value: "MILLILITER", label: "Milliliter" },
   { value: "SERVING", label: "Serving" },
+  { value: "CRATE", label: "Crate" },
+  { value: "BOTTLE", label: "Bottle" },
 ];
 
 const statusOptions: { value: ItemStatus; label: string }[] = [
@@ -101,11 +103,14 @@ const itemFormSchema = z
       "LITER",
       "MILLILITER",
       "SERVING",
+      "CRATE",
+      "BOTTLE",
     ]),
-    unitPrice: z
-      .number()
-      .positive("Unit price must be greater than 0")
-      .optional(),
+    unitPrice: z.preprocess((val) => {
+      // Convert 0, empty string, null to undefined for optional handling
+      if (val === 0 || val === "" || val === null) return undefined;
+      return val;
+    }, z.number().positive("Unit price must be greater than 0").optional()),
     status: z.enum([
       "AVAILABLE",
       "RESERVED",
@@ -237,6 +242,10 @@ export function ItemForm({
         defaultValues?.abv !== undefined ? Number(defaultValues.abv) : undefined
       ),
       allergens: defaultValues?.allergens ?? [],
+      bottlesPerCrate: coerceNumber(
+        defaultValues?.bottlesPerCrate ?? undefined
+      ),
+      bottleVolumeMl: coerceNumber(defaultValues?.bottleVolumeMl ?? undefined),
     },
   });
 
@@ -292,6 +301,8 @@ export function ItemForm({
       supplierId: values.supplierId || undefined,
       abv: values.isAlcohol ? values.abv ?? undefined : undefined,
       allergens: values.allergens ?? [],
+      bottlesPerCrate: values.bottlesPerCrate ?? undefined,
+      bottleVolumeMl: values.bottleVolumeMl ?? undefined,
     };
 
     onSubmit(cleaned);
@@ -731,6 +742,66 @@ export function ItemForm({
                     </FormItem>
                   )}
                 />
+              )}
+
+              {category === "FOOD_BEVERAGE" && (
+                <div className="grid gap-4 md:grid-cols-2">
+                  <FormField
+                    control={form.control}
+                    name="bottlesPerCrate"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Bottles Per Crate (Optional)</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            min="1"
+                            step="1"
+                            placeholder="e.g., 24"
+                            value={field.value ?? ""}
+                            onChange={(event) =>
+                              field.onChange(
+                                parseNumberInput(event.target.value)
+                              )
+                            }
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          Number of bottles in one crate (for unit conversions)
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="bottleVolumeMl"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Bottle Volume (mL) (Optional)</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            min="1"
+                            step="1"
+                            placeholder="e.g., 330"
+                            value={field.value ?? ""}
+                            onChange={(event) =>
+                              field.onChange(
+                                parseNumberInput(event.target.value)
+                              )
+                            }
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          Volume of each bottle in milliliters
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
               )}
 
               <FormField
