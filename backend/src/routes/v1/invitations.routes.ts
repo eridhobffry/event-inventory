@@ -166,8 +166,7 @@ const invitationsRoutes: FastifyPluginAsync = async (server) => {
       preHandler: [verifyNeonAuth, verifyEventAccess, verifyCanManageMembers],
       schema: {
         tags: ["invitations"],
-        description:
-          "Get list of invitations for an event (OWNER/ADMIN only)",
+        description: "Get list of invitations for an event (OWNER/ADMIN only)",
         security: [{ bearerAuth: [] }],
         params: {
           type: "object",
@@ -357,6 +356,15 @@ const invitationsRoutes: FastifyPluginAsync = async (server) => {
                   role: { type: "string" },
                 },
               },
+              event: {
+                type: "object",
+                properties: {
+                  id: { type: "string" },
+                  name: { type: "string" },
+                  description: { type: "string" },
+                  location: { type: "string" },
+                },
+              },
             },
           },
           400: {
@@ -446,8 +454,38 @@ const invitationsRoutes: FastifyPluginAsync = async (server) => {
           });
         }
 
-        // Create event member and update invitation in a transaction
-        const [eventMember, _] = await prisma.$transaction([
+        // Check if there are other accepted invitations for this email/event
+        // This handles the edge case where multiple invitations were sent
+        const acceptedInvitation = await prisma.eventInvitation.findFirst({
+          where: {
+            eventId: invitation.eventId,
+            inviteeEmail: userEmail,
+            status: InvitationStatus.ACCEPTED,
+            id: { not: id }, // Exclude current invitation
+          },
+        });
+
+        // If there's already an accepted invitation, decline it first to avoid unique constraint
+        if (acceptedInvitation) {
+          await prisma.eventInvitation.update({
+            where: { id: acceptedInvitation.id },
+            data: { status: InvitationStatus.DECLINED },
+          });
+        }
+
+        // Decline any other pending invitations for this email/event
+        await prisma.eventInvitation.updateMany({
+          where: {
+            eventId: invitation.eventId,
+            inviteeEmail: userEmail,
+            status: InvitationStatus.PENDING,
+            id: { not: id }, // Exclude current invitation
+          },
+          data: { status: InvitationStatus.DECLINED },
+        });
+
+        // Create event member and update current invitation in a transaction
+        const [eventMember] = await prisma.$transaction([
           prisma.eventMember.create({
             data: {
               userId,
@@ -461,9 +499,21 @@ const invitationsRoutes: FastifyPluginAsync = async (server) => {
           }),
         ]);
 
+        // Fetch event details to return to frontend
+        const event = await prisma.event.findUnique({
+          where: { id: invitation.eventId },
+          select: {
+            id: true,
+            name: true,
+            description: true,
+            location: true,
+          },
+        });
+
         return {
           message: "Invitation accepted successfully",
           eventMember,
+          event,
         };
       } catch (error) {
         request.log.error(error, "Error accepting invitation");

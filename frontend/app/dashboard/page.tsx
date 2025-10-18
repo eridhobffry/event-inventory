@@ -43,7 +43,7 @@ import {
 
 export default function DashboardPage() {
   const user = useUser({ or: "redirect" });
-  const { currentEvent } = useEventContext();
+  const { currentEvent, events } = useEventContext();
   const { data: itemsData, isLoading: itemsLoading } = useItems({ limit: 100 });
   const { data: statsData, isLoading: statsLoading } = useAuditStats();
   const thirtyDaysAgoIso = useMemo(
@@ -101,8 +101,9 @@ export default function DashboardPage() {
                 No Event Selected
               </h3>
               <p className="text-sm text-muted-foreground mb-4 text-center max-w-md">
-                Select an event from the dropdown above or create a new event to
-                get started
+                {events.length > 0
+                  ? "Select an event from the dropdown above to view your dashboard"
+                  : "Create your first event or accept an invitation to get started"}
               </p>
               <Link href="/events/new" className="w-full sm:w-auto">
                 <Button className="w-full sm:w-auto min-h-[44px]">

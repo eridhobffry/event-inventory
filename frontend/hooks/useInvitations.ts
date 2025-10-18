@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import { useAuthToken } from "./useAuthenticatedApi";
+import { useEventContext } from "@/contexts/EventContext";
 
 export type Role = "OWNER" | "ADMIN" | "EDITOR" | "VIEWER";
 export type InvitationStatus = "PENDING" | "ACCEPTED" | "DECLINED" | "EXPIRED";
@@ -98,11 +99,16 @@ export function useCreateInvitation(eventId: string) {
       return response.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["event-invitations", eventId] });
+      queryClient.invalidateQueries({
+        queryKey: ["event-invitations", eventId],
+      });
       toast.success("Invitation sent successfully!");
     },
     onError: (error: any) => {
-      const message = error.response?.data?.message || error.message || "Failed to send invitation";
+      const message =
+        error.response?.data?.message ||
+        error.message ||
+        "Failed to send invitation";
       toast.error(message);
     },
   });
@@ -112,6 +118,7 @@ export function useCreateInvitation(eventId: string) {
 export function useAcceptInvitation() {
   const queryClient = useQueryClient();
   const authToken = useAuthToken();
+  const { currentEventId, setCurrentEventId } = useEventContext();
 
   return useMutation({
     mutationFn: async (invitationId: string) => {
@@ -126,14 +133,41 @@ export function useAcceptInvitation() {
       );
       return response.data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      // Invalidate queries to refetch data
       queryClient.invalidateQueries({ queryKey: ["pending-invitations"] });
       queryClient.invalidateQueries({ queryKey: ["events"] });
       queryClient.invalidateQueries({ queryKey: ["event-members"] });
-      toast.success("Invitation accepted! Welcome to the event!");
+
+      // If user has no current event, the EventContext will auto-select
+      // If they do have an event, respect their context (modern UX best practice)
+      const acceptedEventName = data?.event?.name || "the event";
+
+      if (!currentEventId) {
+        toast.success(`Welcome to ${acceptedEventName}!`, {
+          description: "Setting up your workspace...",
+          duration: 3000,
+        });
+      } else {
+        toast.success(`You joined ${acceptedEventName}!`, {
+          description: "Find it in the event dropdown when you're ready",
+          duration: 4000,
+          action: {
+            label: "Switch Now",
+            onClick: () => {
+              if (data?.event?.id) {
+                setCurrentEventId(data.event.id);
+              }
+            },
+          },
+        });
+      }
     },
     onError: (error: any) => {
-      const message = error.response?.data?.message || error.message || "Failed to accept invitation";
+      const message =
+        error.response?.data?.message ||
+        error.message ||
+        "Failed to accept invitation";
       toast.error(message);
     },
   });
@@ -162,7 +196,10 @@ export function useDeclineInvitation() {
       toast.success("Invitation declined");
     },
     onError: (error: any) => {
-      const message = error.response?.data?.message || error.message || "Failed to decline invitation";
+      const message =
+        error.response?.data?.message ||
+        error.message ||
+        "Failed to decline invitation";
       toast.error(message);
     },
   });
@@ -187,7 +224,10 @@ export function useCancelInvitation() {
       toast.success("Invitation cancelled");
     },
     onError: (error: any) => {
-      const message = error.response?.data?.message || error.message || "Failed to cancel invitation";
+      const message =
+        error.response?.data?.message ||
+        error.message ||
+        "Failed to cancel invitation";
       toast.error(message);
     },
   });
@@ -217,7 +257,10 @@ export function useUpdateMemberRole(eventId: string) {
       toast.success("Member role updated successfully!");
     },
     onError: (error: any) => {
-      const message = error.response?.data?.message || error.message || "Failed to update role";
+      const message =
+        error.response?.data?.message ||
+        error.message ||
+        "Failed to update role";
       toast.error(message);
     },
   });
